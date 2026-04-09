@@ -83,4 +83,9 @@ Base path: `/api/v1`
 | `GET` | `/images/{id}` | Get image |
 | `PUT` | `/images/{id}` | Update image |
 | `DELETE` | `/images/{id}` | Delete image |
+| `GET` | `/authors` | List authors (?category_id=&name=) |
+| `POST` | `/authors` | Create author |
+| `GET` | `/authors/{id}` | Get author |
+| `PUT` | `/authors/{id}` | Update author |
+| `DELETE` | `/authors/{id}` | Delete author |
 | `GET` | `/metrics` | Prometheus metrics |

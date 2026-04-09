@@ -8,6 +8,18 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type Author struct {
+	ID         pgtype.UUID        `json:"id"`
+	Name       string             `json:"name"`
+	Bio        pgtype.Text        `json:"bio"`
+	BornDate   pgtype.Date        `json:"born_date"`
+	DiedDate   pgtype.Date        `json:"died_date"`
+	ImageID    pgtype.UUID        `json:"image_id"`
+	CategoryID pgtype.UUID        `json:"category_id"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}
+
 type Category struct {
 	ID        pgtype.UUID        `json:"id"`
 	Name      string             `json:"name"`
