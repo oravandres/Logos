@@ -12,3 +12,4 @@ Run before pushing:
 
 ```bash
 make verify
+```

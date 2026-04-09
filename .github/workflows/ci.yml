@@ -1,5 +1,10 @@
 name: ci
 
+env:
+  STATICCHECK_VERSION: v0.7.0
+  GOVULNCHECK_VERSION: v1.1.4
+  GOLANGCI_LINT_VERSION: v1.64.8
+
 on:
   pull_request:
   push:
@@ -28,9 +33,9 @@ jobs:
 
       - name: Install tools
         run: |
-          go install honnef.co/go/tools/cmd/staticcheck@latest
-          go install golang.org/x/vuln/cmd/govulncheck@latest
-          go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+          go install honnef.co/go/tools/cmd/staticcheck@${STATICCHECK_VERSION}
+          go install golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}
+          go install github.com/golangci/golangci-lint/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}
 
       - name: Verify modules
         run: |
@@ -58,21 +63,28 @@ jobs:
       - name: Build
         run: go build ./...
 
-      - name: Upload binary artifact
+      - name: Build service binary
         if: github.ref == 'refs/heads/main'
+        id: build_service
         run: |
-          mkdir -p dist
-          go build -o dist/service ./cmd/service
+          if go list ./cmd/service >/dev/null 2>&1; then
+            mkdir -p dist
+            go build -o dist/service ./cmd/service
+            echo "built=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "cmd/service not present yet; skipping binary artifact build"
+            echo "built=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Upload artifact
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && steps.build_service.outputs.built == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: service-binary
           path: dist/service
 
       - name: Attest build provenance
-        if: github.ref == 'refs/heads/main'
-        uses: actions/attest@v2
+        if: github.ref == 'refs/heads/main' && steps.build_service.outputs.built == 'true'
+        uses: actions/attest-build-provenance@v3
         with:
           subject-path: dist/service

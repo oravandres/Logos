@@ -85,7 +85,7 @@ check-generated:
 	@git diff --exit-code -- . ':(exclude)go.sum' || (echo "Generated files or tracked files changed"; exit 1)
 
 .PHONY: verify
-verify: fmt tidy test vet lint staticcheck vuln build
+verify: fmt tidy test test-race vet lint staticcheck vuln build
 
 .PHONY: ci
-ci: tidy test vet lint staticcheck vuln build
+ci: tidy test test-race vet lint staticcheck vuln build
