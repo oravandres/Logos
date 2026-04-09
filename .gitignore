@@ -1,5 +1,5 @@
 # Binaries
-logos
+/logos
 *.exe
 *.exe~
 *.dll

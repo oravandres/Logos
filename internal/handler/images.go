@@ -95,7 +95,11 @@ func (h *ImageHandler) Create(w http.ResponseWriter, r *http.Request) {
 		CategoryID: model.OptionalUUIDToPgtype(req.CategoryID),
 	})
 	if err != nil {
-		respondErrorDetail(w, http.StatusInternalServerError, "failed to create image", err.Error())
+		if isFKViolation(err) {
+			respondError(w, http.StatusUnprocessableEntity, "referenced category does not exist")
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to create image")
 		return
 	}
 
@@ -132,7 +136,11 @@ func (h *ImageHandler) Update(w http.ResponseWriter, r *http.Request) {
 			respondError(w, http.StatusNotFound, "image not found")
 			return
 		}
-		respondErrorDetail(w, http.StatusInternalServerError, "failed to update image", err.Error())
+		if isFKViolation(err) {
+			respondError(w, http.StatusUnprocessableEntity, "referenced category does not exist")
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to update image")
 		return
 	}
 

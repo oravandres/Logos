@@ -88,7 +88,11 @@ func (h *CategoryHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Type: req.Type,
 	})
 	if err != nil {
-		respondErrorDetail(w, http.StatusConflict, "category already exists or invalid data", err.Error())
+		if isUniqueViolation(err) {
+			respondError(w, http.StatusConflict, "category with this name and type already exists")
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to create category")
 		return
 	}
 
@@ -130,7 +134,11 @@ func (h *CategoryHandler) Update(w http.ResponseWriter, r *http.Request) {
 			respondError(w, http.StatusNotFound, "category not found")
 			return
 		}
-		respondErrorDetail(w, http.StatusConflict, "update failed", err.Error())
+		if isUniqueViolation(err) {
+			respondError(w, http.StatusConflict, "category with this name and type already exists")
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to update category")
 		return
 	}
 

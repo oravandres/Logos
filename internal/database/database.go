@@ -42,8 +42,15 @@ func RunMigrations(databaseURL string, migrationsFS fs.FS) error {
 		return fmt.Errorf("create migration source: %w", err)
 	}
 
-	// golang-migrate pgx/v5 driver registers under the "pgx5" scheme
-	migrationURL := strings.Replace(databaseURL, "postgres://", "pgx5://", 1)
+	// golang-migrate pgx/v5 driver registers under the "pgx5" scheme.
+	// pgxpool accepts both "postgres://" and "postgresql://" so normalize both.
+	migrationURL := databaseURL
+	switch {
+	case strings.HasPrefix(migrationURL, "postgres://"):
+		migrationURL = "pgx5://" + strings.TrimPrefix(migrationURL, "postgres://")
+	case strings.HasPrefix(migrationURL, "postgresql://"):
+		migrationURL = "pgx5://" + strings.TrimPrefix(migrationURL, "postgresql://")
+	}
 
 	m, err := migrate.NewWithSourceInstance("iofs", source, migrationURL)
 	if err != nil {
