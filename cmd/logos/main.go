@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -66,7 +67,9 @@ func run() error {
 	case sig := <-quit:
 		slog.Info("shutting down", "signal", sig)
 	case err := <-errCh:
-		slog.Error("server error", "error", err)
+		if !errors.Is(err, http.ErrServerClosed) {
+			return fmt.Errorf("server failed: %w", err)
+		}
 	}
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
