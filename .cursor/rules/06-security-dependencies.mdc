@@ -1,0 +1,34 @@
+---
+description: Security and dependency management standards for Go services
+globs:
+  - "**/*.go"
+  - "go.mod"
+  - "go.sum"
+alwaysApply: true
+---
+
+## Security baseline
+- Treat all external input as untrusted.
+- Validate and sanitize at system boundaries.
+- Apply least privilege in design and runtime behavior.
+- Never disable security checks to "make it work".
+
+## Dependency management
+- Use Go modules cleanly and intentionally.
+- Keep go.mod and go.sum tidy and review dependency additions carefully.
+- Prefer upgrading dependencies rather than pinning old vulnerable versions without cause.
+- Avoid unnecessary indirect dependency bloat.
+
+## Vulnerability management
+- Run govulncheck regularly and in CI where practical.
+- Treat reachable vulnerabilities as release-blocking unless explicitly risk-accepted.
+- Reassess vulnerable transitive dependencies promptly.
+
+## Crypto and transport
+- Prefer standard library crypto and TLS unless a specialized library is clearly justified.
+- Do not invent crypto.
+- Use secure defaults and review transport-level assumptions carefully.
+
+## Secrets
+- Never commit secrets, credentials, API keys, tokens, or certificates.
+- Load secrets from the environment or dedicated secret management systems.

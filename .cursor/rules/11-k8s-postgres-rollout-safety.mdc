@@ -1,0 +1,16 @@
+---
+description: Rollout safety for Kubernetes and PostgreSQL changes
+globs:
+  - "**/*.go"
+  - "**/*.sql"
+  - "**/*.yml"
+  - "**/*.yaml"
+alwaysApply: true
+---
+
+## Rollout safety
+- Assume rolling deployment, not instant replacement.
+- New code must tolerate the migration window between old and new schema where applicable.
+- Avoid schema changes that require disruptive locks during normal peak traffic unless explicitly planned.
+- Do not merge database and application changes that are only safe if every pod updates simultaneously.
+- Graceful shutdown, readiness, and database compatibility must all remain correct during rollout.

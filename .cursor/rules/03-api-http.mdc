@@ -1,0 +1,29 @@
+---
+description: HTTP and API standards for Go services
+globs:
+  - "**/*.go"
+alwaysApply: true
+---
+
+## HTTP handlers
+- Keep handlers thin: parse input, call service, map result to response.
+- Do not place business rules directly in handlers.
+- Validate all request inputs at the boundary.
+- Use request-scoped context from the incoming request and propagate it downstream.
+
+## Contracts
+- Keep request and response shapes explicit and stable.
+- Do not expose database entities directly over the wire.
+- Preserve backward compatibility unless explicitly instructed to break it.
+- Use consistent status codes and error response shapes.
+
+## Timeouts and cancellation
+- Propagate context through all outbound operations.
+- Respect cancellation for database, HTTP, and RPC calls.
+- Do not ignore ctx.Err().
+- Set explicit timeouts for external calls.
+
+## net/http posture
+- Prefer the standard net/http stack unless a framework clearly adds meaningful value.
+- Use middleware sparingly and keep it transparent.
+- Be explicit about limits, body sizes, and request parsing behavior.

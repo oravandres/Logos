@@ -1,0 +1,17 @@
+---
+description: CI quality gates for this Go service
+globs:
+  - "**/*.go"
+  - ".github/workflows/*.yml"
+  - ".github/workflows/*.yaml"
+  - ".golangci.yml"
+  - "Makefile"
+alwaysApply: true
+---
+
+## Quality gates
+- Keep CI fast, deterministic, and meaningful.
+- Required CI checks are tests, race tests where relevant, go vet, golangci-lint, staticcheck, govulncheck, and build.
+- Do not weaken CI to bypass failing quality or security checks without an explicit justification.
+- Prefer fixing flaky tests over retry-based masking.
+- Keep local developer commands aligned with CI commands where practical.

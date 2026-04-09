@@ -1,0 +1,50 @@
+---
+description: Core Go engineering standards for a production-grade repository
+globs:
+  - "**/*.go"
+alwaysApply: true
+---
+
+You are working in a high-quality, production-grade Go codebase.
+
+## Toolchain and posture
+- Target modern stable Go and write idiomatic Go, not Java/C#/TypeScript written in Go syntax.
+- Prefer the standard library unless a non-stdlib dependency clearly improves correctness, security, or operational quality.
+- Preserve compatibility and existing architecture unless the task explicitly requires change.
+
+## General code quality
+- Prefer simple, explicit, readable code over abstraction-heavy designs.
+- Keep functions focused and cohesive.
+- Avoid hidden side effects.
+- Remove dead code, commented-out code, and unused imports when touching files.
+- Do not introduce speculative abstractions.
+
+## Naming and package design
+- Use short, descriptive package names.
+- Avoid package names that stutter in usage.
+- Use clear exported names and concise local names.
+- Do not create interfaces prematurely. Prefer concrete types until an interface is needed by a consumer.
+
+## Go-specific style
+- Keep interfaces small and consumer-driven.
+- Return errors as the last return value.
+- Prefer zero-value-friendly types where practical.
+- Do not use panic for normal control flow.
+- Use pointers only when needed for mutation, large structs, shared state, or method-set reasons.
+- Prefer value semantics when they are simpler and safe.
+
+## Concurrency
+- Do not start goroutines without a clear lifecycle, ownership, and shutdown path.
+- Avoid shared mutable state unless justified and protected carefully.
+- Prefer channels for coordination only when they genuinely simplify the design.
+- Do not introduce concurrency for theoretical performance gains.
+
+## Dependencies
+- Keep dependencies minimal.
+- Prefer mature, maintained libraries with a clear operational benefit.
+- Avoid replacing stdlib facilities without a concrete reason.
+
+## Documentation
+- Keep comments high signal.
+- Explain why, invariants, or non-obvious tradeoffs.
+- Do not narrate obvious code.

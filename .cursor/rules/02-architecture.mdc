@@ -1,0 +1,31 @@
+---
+description: Architecture rules for a production Go service
+globs:
+  - "**/*.go"
+alwaysApply: true
+---
+
+## Architecture
+- Keep transport, application, domain, and persistence concerns separated.
+- Handlers/controllers must stay thin.
+- Business logic belongs in services or domain packages.
+- Database and external system code belongs behind clear boundaries.
+- Avoid framework leakage into core domain logic.
+
+## Package boundaries
+- Prefer internal packages for application-private code.
+- Use pkg only for intentionally reusable, externally consumable packages.
+- Keep package APIs small and cohesive.
+- Avoid circular dependencies and package entanglement.
+
+## Construction and wiring
+- Prefer explicit dependency injection through constructors.
+- Do not use global mutable state for core dependencies.
+- Keep initialization in main or dedicated wiring packages.
+- Pass concrete dependencies inward; expose narrow interfaces only where a consumer needs them.
+
+## Configuration
+- Treat configuration as explicit application input.
+- Validate configuration at startup.
+- Fail fast on invalid required configuration.
+- Never hardcode secrets or environment-specific endpoints.

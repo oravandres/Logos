@@ -1,0 +1,29 @@
+---
+description: How the coding agent should behave in this Go repository
+globs:
+  - "**/*"
+alwaysApply: true
+---
+
+## Working method
+- First inspect local package structure, naming, constructor patterns, tests, and error handling before editing.
+- Follow existing high-quality patterns rather than introducing stylistic novelty.
+- Make the smallest safe change that fully solves the task.
+- Do not rename packages, files, or exported APIs without a clear reason.
+
+## Go-specific expectations
+- Prefer idiomatic Go over abstraction-heavy patterns from OO languages.
+- Keep code readable with explicit control flow.
+- Prefer concrete types and constructors over interface-first design.
+- Propagate context correctly and handle cancellation explicitly.
+- Preserve error chains and use structured logging.
+
+## Completion checklist
+Before finalizing changes, verify:
+- code is idiomatic Go
+- imports are correct
+- public contracts remain consistent unless intentionally changed
+- context propagation is correct
+- errors are wrapped or classified appropriately
+- tests are added or updated where needed
+- no obvious security or observability regression was introduced

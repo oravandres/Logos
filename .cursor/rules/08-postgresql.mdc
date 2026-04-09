@@ -1,0 +1,80 @@
+---
+description: PostgreSQL access and schema standards for a production Go service
+globs:
+  - "**/*.go"
+  - "**/*.sql"
+alwaysApply: true
+---
+
+This service uses PostgreSQL in production.
+
+## General database posture
+- Write code and schema changes for correctness first, then performance, then convenience.
+- Treat PostgreSQL as a strong transactional system, not a schemaless storage layer.
+- Keep application behavior aligned with schema constraints and database guarantees.
+
+## Context and cancellation
+- Pass context through all database operations.
+- Do not issue database calls without bounded cancellation.
+- Respect request cancellation and timeout behavior all the way down to queries and transactions.
+
+## Transactions
+- Use transactions only when multiple operations must succeed or fail together.
+- Keep transactions as short as possible.
+- Do not hold transactions open across network calls, slow I/O, or long business workflows.
+- Set transaction boundaries intentionally.
+- Use the weakest isolation level that safely preserves correctness for the use case.
+- When correctness depends on concurrency behavior, document the assumption explicitly.
+
+## Query discipline
+- Prefer explicit SQL and explicit column lists.
+- Do not use SELECT * in production query paths unless there is a strong reason.
+- Keep query shapes stable and reviewable.
+- Avoid unnecessary round-trips.
+- Batch where it improves correctness and measurable efficiency without obscuring behavior.
+
+## Locking and concurrency
+- Understand row locking and transaction isolation before introducing concurrency-sensitive logic.
+- Do not add explicit locks casually.
+- Use SELECT ... FOR UPDATE or stronger locking only when the correctness requirement is clear.
+- Be aware that locking choices affect latency, throughput, and deadlock risk.
+
+## Schema design
+- Enforce important invariants in the database, not only in application code.
+- Use primary keys, foreign keys, unique constraints, and check constraints intentionally.
+- Model nullability explicitly.
+- Prefer additive, backward-compatible schema evolution when possible.
+
+## Indexing
+- Add indexes intentionally based on real query patterns.
+- Remember that indexes speed reads but add write and maintenance overhead.
+- Choose index types deliberately.
+- Consider partial indexes only when the predicate is stable and clearly beneficial.
+- Reassess indexes when query patterns change.
+
+## Performance analysis
+- Use EXPLAIN or EXPLAIN ANALYZE when changing important queries.
+- Do not guess about query performance on critical paths.
+- Optimize based on actual plans, row counts, and workload patterns.
+
+## Operational hygiene
+- Assume autovacuum is necessary and important.
+- Do not design workloads that rely on ignoring vacuuming or statistics maintenance.
+- Be aware of transaction bloat, long-running transactions, and wraparound risks.
+
+## Error handling
+- Classify database errors meaningfully at service boundaries.
+- Distinguish not found, unique violation, foreign key violation, serialization conflict, and timeout cases where relevant.
+- Do not leak raw SQL, credentials, or sensitive values in logs or client-facing errors.
+
+## Migrations
+- Keep migrations deterministic, ordered, and reversible where practical.
+- Do not combine unrelated schema changes in one migration.
+- Prefer expand-and-contract patterns for breaking schema evolution.
+- Avoid migrations that require long exclusive locks during normal peak traffic unless explicitly planned.
+
+## Security
+- Use least-privilege database roles.
+- Do not connect as a superuser from the application.
+- Keep credentials out of source code and manifests.
+- Use TLS and connection security according to platform policy.
