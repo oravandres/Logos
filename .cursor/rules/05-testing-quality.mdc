@@ -1,0 +1,37 @@
+---
+description: Testing, fuzzing, benchmarks, and quality gates for Go
+globs:
+  - "**/*.go"
+alwaysApply: true
+---
+
+## Testing philosophy
+- Test observable behavior, not implementation trivia.
+- Prefer table-driven tests when they improve clarity.
+- Use subtests when they improve readability and failure isolation.
+- Keep tests deterministic and easy to understand.
+
+## Unit tests
+- Keep mocks limited to true boundaries.
+- Prefer real collaborators for simple internal logic.
+- Use t.Helper for helpers.
+- Use t.Cleanup for cleanup logic tied to the test lifecycle.
+
+## Integration tests
+- Cover important workflows and boundary contracts.
+- Use realistic fixtures and explicit setup.
+- Avoid hidden environmental assumptions.
+
+## Fuzzing
+- Add fuzz tests for parsers, decoders, protocol handlers, input normalization, and security-sensitive logic.
+- Use fuzzing where untrusted or attacker-controlled input exists.
+- Keep fuzz targets focused and reproducible.
+
+## Benchmarks
+- Benchmark hot paths, allocation-sensitive code, serialization, and concurrency-sensitive flows.
+- Do not micro-optimize before measurement.
+
+## Quality gates
+- New behavior must come with tests or a clear reason why tests are not appropriate.
+- Prefer go test, go test -race where relevant, go vet, and modern static analysis in CI.
+- Keep tests fast enough for frequent execution.

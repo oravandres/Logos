@@ -1,0 +1,35 @@
+---
+description: PostgreSQL migrations and performance discipline
+globs:
+  - "**/*.sql"
+  - "**/migrations/*"
+  - "**/*.go"
+alwaysApply: true
+---
+
+## Migration safety
+- Write migrations to be safe under real production data volumes.
+- Prefer additive schema changes first, code rollout second, cleanup later.
+- Avoid destructive schema changes in the same release that introduces replacement paths.
+- Be explicit about lock risk, backfill strategy, and rollback implications.
+
+## Backward compatibility
+- New code must tolerate old schema during rolling deployment where applicable.
+- Old code should continue to function during the migration window unless a hard cutover is explicitly planned.
+- Do not assume all pods switch versions instantly.
+
+## Large-table caution
+- Be careful with index creation, column type rewrites, table rewrites, and constraint validation on large tables.
+- Plan heavy operations deliberately and document operational risk.
+- Prefer online-safe approaches when available and justified.
+
+## Query performance
+- Performance-sensitive query changes should be reviewed with actual execution plans.
+- Avoid ORM-generated query complexity when explicit SQL is clearer and more predictable.
+- Keep pagination, sorting, and filtering query plans efficient and observable.
+
+## Connection usage
+- Use connection pools intentionally.
+- Do not leak rows, statements, or transactions.
+- Close resources promptly.
+- Keep pool sizing aligned with PostgreSQL capacity and workload characteristics.

@@ -1,0 +1,31 @@
+---
+description: Error handling, structured logging, and observability standards
+globs:
+  - "**/*.go"
+alwaysApply: true
+---
+
+## Errors
+- Return rich, contextual errors.
+- Wrap errors with fmt.Errorf(... %w ...) when preserving causal chains matters.
+- Use errors.Is and errors.As for matching and inspection.
+- Do not compare wrapped errors with == except for known direct sentinel cases.
+- Do not log and return the same error at multiple layers unless each log adds distinct operational value.
+
+## Error boundaries
+- Convert internal errors to stable transport errors only at boundaries.
+- Never leak secrets, SQL, tokens, credentials, or stack internals in user-facing errors.
+- Distinguish validation, not-found, conflict, authorization, and internal failures clearly.
+
+## Logging
+- Prefer structured logging.
+- Default to log/slog unless the repository already has a strong logging standard.
+- Use stable key names.
+- Include request IDs, trace IDs, and other useful correlation fields where available.
+- Never log secrets, access tokens, raw credentials, session IDs, or unnecessary personal data.
+
+## Observability
+- Instrument critical request paths, external calls, and queue or background work.
+- Prefer OpenTelemetry for traces and metrics.
+- Be conservative with OpenTelemetry logs unless the platform explicitly standardizes on them.
+- Record useful telemetry for failures, latency, retries, and saturation-sensitive operations.

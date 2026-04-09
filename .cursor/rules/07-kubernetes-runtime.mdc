@@ -1,0 +1,88 @@
+---
+description: Kubernetes deployment and runtime standards for a production Go service
+globs:
+  - "**/*.yml"
+  - "**/*.yaml"
+  - "**/Dockerfile*"
+  - "**/*.go"
+alwaysApply: true
+---
+
+This service runs in Kubernetes production environments.
+
+## Deployment posture
+- Target current stable Kubernetes behavior only.
+- Do not rely on alpha or preview Kubernetes features unless explicitly requested.
+- Prefer standard, broadly-supported primitives over clever manifest tricks.
+- Keep manifests explicit, reviewable, and reversible.
+
+## Workload choice
+- Use Deployment for stateless application services unless there is a clear reason to use another controller.
+- Use rolling updates intentionally.
+- Avoid update strategies that risk unnecessary downtime.
+
+## Probes
+- Define readiness probes for traffic gating.
+- Define liveness probes only when they truly detect unrecoverable failure.
+- Define startup probes for slow-starting services so liveness/readiness do not cause premature restarts.
+- Probe endpoints must reflect real application state, not just "process is alive".
+- Readiness must fail when the service cannot safely serve traffic.
+
+## Graceful shutdown
+- Support graceful termination in the application.
+- Respect SIGTERM and stop accepting new work promptly.
+- Allow in-flight requests and background work to drain within the termination window.
+- Do not rely on abrupt process termination as a normal shutdown mechanism.
+- Keep Kubernetes termination settings aligned with application shutdown behavior.
+
+## Resources
+- Set CPU and memory requests and limits intentionally.
+- Do not omit requests for production workloads.
+- Size resources based on measurement, not guesswork.
+- Avoid memory limits that are unrealistically close to normal steady-state usage.
+- Revisit resource settings when major code-paths or traffic patterns change.
+
+## Availability
+- Use at least two replicas for production services when the system requires high availability.
+- Use PodDisruptionBudget where service availability matters during voluntary disruptions.
+- Use topology spread constraints or other scheduling controls to reduce correlated failure risk.
+- Do not assume all replicas will land in safe failure domains by default.
+
+## Security
+- Use a dedicated ServiceAccount only when needed.
+- Do not grant broad Kubernetes API permissions without a clear requirement.
+- Run containers with a restrictive security posture.
+- Prefer non-root execution where supported by the image and application.
+- Avoid privileged containers, host networking, host PID, and hostPath mounts unless explicitly required.
+- Keep secrets out of plain manifests and source code.
+
+## Configuration
+- Keep configuration externalized.
+- Validate configuration on startup and fail fast on invalid required values.
+- Separate configuration from secrets.
+- Do not hardcode environment-specific endpoints, credentials, or database DSNs.
+
+## Networking and traffic
+- Keep Services simple and explicit.
+- Be clear about ports, health endpoints, and protocol expectations.
+- Do not expose admin-only endpoints publicly.
+- Use ingress or gateway configuration consistently with platform standards.
+
+## Observability
+- Emit structured logs to stdout/stderr.
+- Expose health endpoints intentionally.
+- Expose metrics endpoints only when required and secured appropriately.
+- Ensure request IDs and trace context can flow through the service.
+
+## Storage and filesystem
+- Treat containers as ephemeral by default.
+- Do not write required persistent state to local container filesystem.
+- Use read-only root filesystem where practical.
+- Write temporary files only when necessary and to explicit writable paths.
+
+## Manifest hygiene
+- Pin image versions intentionally.
+- Do not use :latest in production.
+- Keep labels, selectors, and annotations consistent.
+- Do not change selectors casually.
+- Keep manifests small, explicit, and easy to diff.
