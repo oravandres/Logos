@@ -1,0 +1,53 @@
+package router
+
+import (
+	"github.com/go-chi/chi/v5"
+	chimw "github.com/go-chi/chi/v5/middleware"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+
+	"github.com/oravandres/Logos/internal/database/dbq"
+	"github.com/oravandres/Logos/internal/handler"
+	"github.com/oravandres/Logos/internal/middleware"
+)
+
+// New builds the chi router with all middleware and API routes wired up.
+func New(pool *pgxpool.Pool) *chi.Mux {
+	q := dbq.New(pool)
+
+	health := &handler.HealthHandler{Pool: pool}
+	categories := &handler.CategoryHandler{Q: q}
+	images := &handler.ImageHandler{Q: q}
+
+	r := chi.NewRouter()
+
+	r.Use(chimw.RequestID)
+	r.Use(chimw.RealIP)
+	r.Use(chimw.Recoverer)
+	r.Use(middleware.Logging)
+	r.Use(middleware.Metrics)
+
+	r.Handle("/metrics", promhttp.Handler())
+
+	r.Route("/api/v1", func(r chi.Router) {
+		r.Get("/health", health.Check)
+
+		r.Route("/categories", func(r chi.Router) {
+			r.Get("/", categories.List)
+			r.Post("/", categories.Create)
+			r.Get("/{id}", categories.Get)
+			r.Put("/{id}", categories.Update)
+			r.Delete("/{id}", categories.Delete)
+		})
+
+		r.Route("/images", func(r chi.Router) {
+			r.Get("/", images.List)
+			r.Post("/", images.Create)
+			r.Get("/{id}", images.Get)
+			r.Put("/{id}", images.Update)
+			r.Delete("/{id}", images.Delete)
+		})
+	})
+
+	return r
+}
