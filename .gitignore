@@ -1,0 +1,35 @@
+# Binaries
+logos
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary
+*.test
+
+# Output
+*.out
+
+# Go workspace
+go.work
+go.work.sum
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+
+# sqlc generated (regenerate with `sqlc generate`)
+# internal/database/queries/  -- tracked, but reminder it's generated
