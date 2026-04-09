@@ -30,15 +30,15 @@ func run() error {
 
 	slog.Info("starting logos", "addr", cfg.ListenAddr())
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-
 	slog.Info("running database migrations")
 	if err := database.RunMigrations(cfg.DatabaseURL, migrations.FS); err != nil {
 		return fmt.Errorf("migration failed: %w", err)
 	}
 
-	pool, err := database.NewPool(ctx, cfg.DatabaseURL)
+	poolCtx, poolCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer poolCancel()
+
+	pool, err := database.NewPool(poolCtx, cfg.DatabaseURL)
 	if err != nil {
 		return fmt.Errorf("database connection failed: %w", err)
 	}
