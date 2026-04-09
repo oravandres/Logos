@@ -1,0 +1,83 @@
+version: "2"
+
+run:
+  timeout: 10m
+  tests: true
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - misspell
+    - gocritic
+    - revive
+    - unconvert
+    - unparam
+    - bodyclose
+    - sqlclosecheck
+    - contextcheck
+    - durationcheck
+    - errorlint
+    - importas
+    - misspell
+    - nilerr
+    - noctx
+    - rowserrcheck
+    - wastedassign
+    - asciicheck
+    - bidichk
+
+  settings:
+    revive:
+      rules:
+        - name: exported
+          disabled: false
+        - name: unexported-return
+          disabled: false
+        - name: var-naming
+          disabled: false
+        - name: blank-imports
+          disabled: false
+        - name: context-as-argument
+          disabled: false
+        - name: error-return
+          disabled: false
+        - name: error-strings
+          disabled: false
+        - name: indent-error-flow
+          disabled: false
+        - name: receiver-naming
+          disabled: false
+        - name: time-naming
+          disabled: false
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - errcheck
+        - funlen
+        - dupl
+
+    - path: cmd/.*
+      linters:
+        - forbidigo
+
+output:
+  formats:
+    text:
+      path: stdout
+      print-linter-name: true
+      print-issued-lines: true
