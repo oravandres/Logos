@@ -33,3 +33,21 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER trg_authors_category_type
     BEFORE INSERT OR UPDATE ON authors
     FOR EACH ROW EXECUTE FUNCTION check_author_category_type();
+
+CREATE OR REPLACE FUNCTION prevent_category_type_change_if_referenced_by_authors()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF OLD.type = 'author' AND NEW.type IS DISTINCT FROM OLD.type THEN
+        IF EXISTS (SELECT 1 FROM authors WHERE category_id = NEW.id) THEN
+            RAISE EXCEPTION 'cannot change category type while referenced by authors'
+                USING ERRCODE = '23514',
+                      CONSTRAINT = 'chk_category_type_in_use_by_authors';
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_category_type_guard_authors
+    BEFORE UPDATE ON categories
+    FOR EACH ROW EXECUTE FUNCTION prevent_category_type_change_if_referenced_by_authors();
