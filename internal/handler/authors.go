@@ -1,9 +1,7 @@
 package handler
 
 import (
-	"context"
 	"errors"
-	"fmt"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -116,8 +114,8 @@ func (h *AuthorHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.CategoryID != nil {
-		if err := h.validateCategoryType(r.Context(), *req.CategoryID, "author"); err != nil {
-			writeCategoryTypeError(w, err)
+		if err := validateCategoryType(r.Context(), h.Q, *req.CategoryID, "author"); err != nil {
+			writeCategoryTypeError(w, "author", err)
 			return
 		}
 	}
@@ -132,7 +130,7 @@ func (h *AuthorHandler) Create(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		if isCheckViolation(err) {
-			respondError(w, http.StatusUnprocessableEntity, "category type must be 'author'")
+			respondError(w, http.StatusUnprocessableEntity, `category type must be "author"`)
 			return
 		}
 		if isFKViolation(err) {
@@ -183,8 +181,8 @@ func (h *AuthorHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.CategoryID != nil {
-		if err := h.validateCategoryType(r.Context(), *req.CategoryID, "author"); err != nil {
-			writeCategoryTypeError(w, err)
+		if err := validateCategoryType(r.Context(), h.Q, *req.CategoryID, "author"); err != nil {
+			writeCategoryTypeError(w, "author", err)
 			return
 		}
 	}
@@ -204,7 +202,7 @@ func (h *AuthorHandler) Update(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if isCheckViolation(err) {
-			respondError(w, http.StatusUnprocessableEntity, "category type must be 'author'")
+			respondError(w, http.StatusUnprocessableEntity, `category type must be "author"`)
 			return
 		}
 		if isFKViolation(err) {
@@ -236,38 +234,6 @@ func (h *AuthorHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
-}
-
-var errCategoryTypeMismatch = errors.New("category type mismatch")
-
-// validateCategoryType looks up a category by ID and verifies its type matches expectedType.
-func (h *AuthorHandler) validateCategoryType(ctx context.Context, categoryID uuid.UUID, expectedType string) error {
-	cat, err := h.Q.GetCategory(ctx, model.UUIDToPgtype(categoryID))
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("referenced category does not exist")
-		}
-		return fmt.Errorf("validate category: %w", err)
-	}
-	if cat.Type != expectedType {
-		return fmt.Errorf("%w: expected %q, got %q", errCategoryTypeMismatch, expectedType, cat.Type)
-	}
-	return nil
-}
-
-func writeCategoryTypeError(w http.ResponseWriter, err error) {
-	if errors.Is(err, errCategoryTypeMismatch) {
-		respondError(w, http.StatusUnprocessableEntity, "category type must be 'author'")
-		return
-	}
-	// Category not found or internal error.
-	status := http.StatusInternalServerError
-	msg := "failed to validate category"
-	if err.Error() == "referenced category does not exist" {
-		status = http.StatusUnprocessableEntity
-		msg = err.Error()
-	}
-	respondError(w, status, msg)
 }
 
 // validateDateChronology returns an error if both dates are present and died is before born.

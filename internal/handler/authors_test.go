@@ -250,7 +250,7 @@ func TestAuthorCreate_CategoryTypeMismatch(t *testing.T) {
 		"category_id": "00000000-0000-0000-0000-000000000001",
 	})
 	assertStatus(t, rec, http.StatusUnprocessableEntity)
-	assertErrorMsg(t, rec, "category type must be 'author'")
+	assertErrorMsg(t, rec, `category type must be "author"`)
 }
 
 func TestAuthorCreate_CheckViolation(t *testing.T) {
@@ -276,7 +276,7 @@ func TestAuthorCreate_CheckViolation(t *testing.T) {
 		"category_id": "00000000-0000-0000-0000-000000000001",
 	})
 	assertStatus(t, rec, http.StatusUnprocessableEntity)
-	assertErrorMsg(t, rec, "category type must be 'author'")
+	assertErrorMsg(t, rec, `category type must be "author"`)
 }
 
 // scanCategoryRow populates a Category row on Scan, matching the GetCategory column order.
