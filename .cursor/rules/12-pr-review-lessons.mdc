@@ -64,6 +64,7 @@ Patterns that caused real PR review rounds. Follow these to get PRs right the fi
 
 - Sub-resource endpoints (e.g. `GET /quotes/{id}/tags`, `POST /quotes/{id}/tags`) must verify the parent resource exists before operating on children. Return `404` when the parent is missing — do not let a join query silently return `200 []` for a nonexistent parent.
 - When a sub-resource write fails with a FK violation, distinguish whether the parent or child is missing. If the parent is in the URL path, validate it first and return `404`; reserve `422` for a bad child reference in the request body.
+- The parent-existence check and the child operation must be atomic. Use a transaction that locks the parent row (`SELECT ... FOR KEY SHARE`) so a concurrent delete cannot slip between the check and the child insert/read. Without this, the check-then-act pattern has a TOCTOU race.
 
 ## Input validation
 

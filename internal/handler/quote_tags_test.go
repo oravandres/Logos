@@ -20,25 +20,71 @@ func quoteTagRouter(h *handler.QuoteTagHandler) *chi.Mux {
 	return r
 }
 
-// scanQuoteRow returns nil from Scan, simulating a found quote row.
-type scanQuoteRow struct{}
+// stubTx implements pgx.Tx backed by a DBTX stub.
+type stubTx struct {
+	pgx.Tx
+	dbtx dbq.DBTX
+}
 
-func (scanQuoteRow) Scan(_ ...any) error { return nil }
+func (s *stubTx) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	return s.dbtx.Exec(ctx, sql, args...)
+}
 
-// quoteExistsStub returns a DBTX where GetQuote (QueryRow) succeeds
-// but Exec can be overridden for the subsequent AddTagToQuote call.
-func quoteExistsExecStub(execFn func(context.Context, string, ...any) (pgconn.CommandTag, error)) *execDBTX {
-	return &execDBTX{
+func (s *stubTx) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	return s.dbtx.Query(ctx, sql, args...)
+}
+
+func (s *stubTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	return s.dbtx.QueryRow(ctx, sql, args...)
+}
+
+func (s *stubTx) Commit(_ context.Context) error   { return nil }
+func (s *stubTx) Rollback(_ context.Context) error { return nil }
+func (s *stubTx) Conn() *pgx.Conn                  { return nil }
+
+// stubTxBeginner implements handler.TxBeginner, returning a stubTx backed
+// by the provided DBTX.
+type stubTxBeginner struct {
+	dbtx dbq.DBTX
+}
+
+func (b *stubTxBeginner) Begin(_ context.Context) (pgx.Tx, error) {
+	return &stubTx{dbtx: b.dbtx}, nil
+}
+
+// quoteNotFoundHandler returns a QuoteTagHandler where GetQuoteForKeyShare
+// returns pgx.ErrNoRows (quote does not exist).
+func quoteNotFoundHandler() *handler.QuoteTagHandler {
+	stub := &stubDBTX{}
+	return &handler.QuoteTagHandler{
+		Q:    dbq.New(stub),
+		Pool: &stubTxBeginner{dbtx: stub},
+	}
+}
+
+// quoteExistsHandler returns a QuoteTagHandler where GetQuoteForKeyShare
+// succeeds but Exec can be overridden.
+func quoteExistsHandler(execFn func(context.Context, string, ...any) (pgconn.CommandTag, error)) *handler.QuoteTagHandler {
+	dbtx := &execDBTX{
 		execFn: execFn,
 		queryRowFn: func(_ context.Context, _ string, _ ...any) pgx.Row {
 			return scanQuoteRow{}
 		},
 	}
+	return &handler.QuoteTagHandler{
+		Q:    dbq.New(dbtx),
+		Pool: &stubTxBeginner{dbtx: dbtx},
+	}
 }
+
+// scanQuoteRow returns nil from Scan, simulating a found quote row.
+type scanQuoteRow struct{}
+
+func (scanQuoteRow) Scan(_ ...any) error { return nil }
 
 func TestQuoteTagListTags_InvalidUUID(t *testing.T) {
 	t.Parallel()
-	router := quoteTagRouter(&handler.QuoteTagHandler{Q: nilQ()})
+	router := quoteTagRouter(quoteNotFoundHandler())
 	rec := getRequest(t, router, "/quotes/not-a-uuid/tags")
 	assertStatus(t, rec, http.StatusBadRequest)
 	assertErrorMsg(t, rec, "invalid UUID")
@@ -46,7 +92,7 @@ func TestQuoteTagListTags_InvalidUUID(t *testing.T) {
 
 func TestQuoteTagListTags_QuoteNotFound(t *testing.T) {
 	t.Parallel()
-	router := quoteTagRouter(&handler.QuoteTagHandler{Q: nilQ()})
+	router := quoteTagRouter(quoteNotFoundHandler())
 	rec := getRequest(t, router, "/quotes/00000000-0000-0000-0000-000000000001/tags")
 	assertStatus(t, rec, http.StatusNotFound)
 	assertErrorMsg(t, rec, "quote not found")
@@ -54,7 +100,7 @@ func TestQuoteTagListTags_QuoteNotFound(t *testing.T) {
 
 func TestQuoteTagAddTag_InvalidQuoteUUID(t *testing.T) {
 	t.Parallel()
-	router := quoteTagRouter(&handler.QuoteTagHandler{Q: nilQ()})
+	router := quoteTagRouter(quoteNotFoundHandler())
 	rec := postJSON(t, router, "/quotes/not-a-uuid/tags", map[string]any{
 		"tag_id": "00000000-0000-0000-0000-000000000001",
 	})
@@ -64,7 +110,7 @@ func TestQuoteTagAddTag_InvalidQuoteUUID(t *testing.T) {
 
 func TestQuoteTagAddTag_QuoteNotFound(t *testing.T) {
 	t.Parallel()
-	router := quoteTagRouter(&handler.QuoteTagHandler{Q: nilQ()})
+	router := quoteTagRouter(quoteNotFoundHandler())
 	rec := postJSON(t, router, "/quotes/00000000-0000-0000-0000-000000000001/tags", map[string]any{
 		"tag_id": "00000000-0000-0000-0000-000000000002",
 	})
@@ -74,8 +120,7 @@ func TestQuoteTagAddTag_QuoteNotFound(t *testing.T) {
 
 func TestQuoteTagAddTag_MissingTagID(t *testing.T) {
 	t.Parallel()
-	stub := quoteExistsExecStub(nil)
-	router := quoteTagRouter(&handler.QuoteTagHandler{Q: dbq.New(stub)})
+	router := quoteTagRouter(quoteExistsHandler(nil))
 	rec := postJSON(t, router, "/quotes/00000000-0000-0000-0000-000000000001/tags", map[string]any{})
 	assertStatus(t, rec, http.StatusBadRequest)
 	assertErrorMsg(t, rec, "tag_id is required")
@@ -84,10 +129,10 @@ func TestQuoteTagAddTag_MissingTagID(t *testing.T) {
 func TestQuoteTagAddTag_FKViolation(t *testing.T) {
 	t.Parallel()
 	fkErr := &pgconn.PgError{Code: "23503", Message: "foreign key violation"}
-	stub := quoteExistsExecStub(func(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
+	h := quoteExistsHandler(func(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
 		return pgconn.CommandTag{}, fkErr
 	})
-	router := quoteTagRouter(&handler.QuoteTagHandler{Q: dbq.New(stub)})
+	router := quoteTagRouter(h)
 
 	rec := postJSON(t, router, "/quotes/00000000-0000-0000-0000-000000000001/tags", map[string]any{
 		"tag_id": "00000000-0000-0000-0000-000000000099",
@@ -98,7 +143,7 @@ func TestQuoteTagAddTag_FKViolation(t *testing.T) {
 
 func TestQuoteTagRemoveTag_InvalidUUIDs(t *testing.T) {
 	t.Parallel()
-	router := quoteTagRouter(&handler.QuoteTagHandler{Q: nilQ()})
+	router := quoteTagRouter(quoteNotFoundHandler())
 
 	tests := []struct {
 		name string
@@ -120,7 +165,7 @@ func TestQuoteTagRemoveTag_InvalidUUIDs(t *testing.T) {
 
 func TestQuoteTagRemoveTag_Success(t *testing.T) {
 	t.Parallel()
-	router := quoteTagRouter(&handler.QuoteTagHandler{Q: nilQ()})
+	router := quoteTagRouter(quoteNotFoundHandler())
 	rec := deleteRequest(t, router, "/quotes/00000000-0000-0000-0000-000000000001/tags/00000000-0000-0000-0000-000000000002")
 	assertStatus(t, rec, http.StatusNoContent)
 }

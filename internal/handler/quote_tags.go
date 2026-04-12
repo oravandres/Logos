@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
@@ -10,41 +11,58 @@ import (
 	"github.com/oravandres/Logos/internal/model"
 )
 
-// QuoteTagHandler provides HTTP handlers for managing tag associations on quotes.
-type QuoteTagHandler struct {
-	Q *dbq.Queries
+// TxBeginner abstracts transaction creation so handlers can be tested
+// without a live pgxpool.Pool.
+type TxBeginner interface {
+	Begin(ctx context.Context) (pgx.Tx, error)
 }
 
-// requireQuote verifies the quote exists and returns its UUID, writing a
-// 400/404/500 response and returning false when the caller should stop.
-func (h *QuoteTagHandler) requireQuote(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
-	quoteID, err := parseUUID(r, "id")
-	if err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
-		return uuid.Nil, false
-	}
+// QuoteTagHandler provides HTTP handlers for managing tag associations on quotes.
+type QuoteTagHandler struct {
+	Q    *dbq.Queries
+	Pool TxBeginner
+}
 
-	_, err = h.Q.GetQuote(r.Context(), model.UUIDToPgtype(quoteID))
+// verifyQuoteInTx locks the quote row (FOR KEY SHARE) within the given
+// transaction, returning false and writing an HTTP error when the quote
+// does not exist or the lookup fails.
+func verifyQuoteInTx(ctx context.Context, qtx *dbq.Queries, w http.ResponseWriter, quoteID uuid.UUID) bool {
+	_, err := qtx.GetQuoteForKeyShare(ctx, model.UUIDToPgtype(quoteID))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			respondError(w, http.StatusNotFound, "quote not found")
-			return uuid.Nil, false
+			return false
 		}
 		respondError(w, http.StatusInternalServerError, "failed to verify quote")
-		return uuid.Nil, false
+		return false
 	}
-
-	return quoteID, true
+	return true
 }
 
 // ListTags returns all tags associated with a given quote.
 func (h *QuoteTagHandler) ListTags(w http.ResponseWriter, r *http.Request) {
-	quoteID, ok := h.requireQuote(w, r)
-	if !ok {
+	quoteID, err := parseUUID(r, "id")
+	if err != nil {
+		respondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	tags, err := h.Q.ListTagsByQuote(r.Context(), model.UUIDToPgtype(quoteID))
+	ctx := r.Context()
+
+	tx, err := h.Pool.Begin(ctx)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to begin transaction")
+		return
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	qtx := h.Q.WithTx(tx)
+
+	if !verifyQuoteInTx(ctx, qtx, w, quoteID) {
+		return
+	}
+
+	tags, err := qtx.ListTagsByQuote(ctx, model.UUIDToPgtype(quoteID))
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to list tags for quote")
 		return
@@ -60,8 +78,9 @@ type addTagBody struct {
 
 // AddTag associates a tag with a quote. Idempotent via ON CONFLICT DO NOTHING.
 func (h *QuoteTagHandler) AddTag(w http.ResponseWriter, r *http.Request) {
-	quoteID, ok := h.requireQuote(w, r)
-	if !ok {
+	quoteID, err := parseUUID(r, "id")
+	if err != nil {
+		respondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -76,7 +95,22 @@ func (h *QuoteTagHandler) AddTag(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.Q.AddTagToQuote(r.Context(), dbq.AddTagToQuoteParams{
+	ctx := r.Context()
+
+	tx, err := h.Pool.Begin(ctx)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to begin transaction")
+		return
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	qtx := h.Q.WithTx(tx)
+
+	if !verifyQuoteInTx(ctx, qtx, w, quoteID) {
+		return
+	}
+
+	if err := qtx.AddTagToQuote(ctx, dbq.AddTagToQuoteParams{
 		QuoteID: model.UUIDToPgtype(quoteID),
 		TagID:   model.UUIDToPgtype(body.TagID),
 	}); err != nil {
@@ -85,6 +119,11 @@ func (h *QuoteTagHandler) AddTag(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		respondError(w, http.StatusInternalServerError, "failed to add tag to quote")
+		return
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to commit transaction")
 		return
 	}
 

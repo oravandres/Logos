@@ -60,6 +60,12 @@ Run before pushing:
 make verify
 ```
 
+Install the pre-push git hook to run lint + tests automatically before every push:
+
+```bash
+make install-hooks
+```
+
 ## Build & Deploy
 
 ```bash

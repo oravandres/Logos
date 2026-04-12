@@ -23,7 +23,7 @@ func New(pool *pgxpool.Pool, cfg config.Config) *chi.Mux {
 	authors := &handler.AuthorHandler{Q: q}
 	quotes := &handler.QuoteHandler{Q: q}
 	tags := &handler.TagHandler{Q: q}
-	quoteTags := &handler.QuoteTagHandler{Q: q}
+	quoteTags := &handler.QuoteTagHandler{Q: q, Pool: pool}
 
 	r := chi.NewRouter()
 
