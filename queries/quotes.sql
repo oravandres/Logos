@@ -4,7 +4,7 @@ FROM quotes
 WHERE (author_id = sqlc.narg('filter_author_id') OR sqlc.narg('filter_author_id') IS NULL)
   AND (category_id = sqlc.narg('filter_category_id') OR sqlc.narg('filter_category_id') IS NULL)
   AND (title ILIKE '%' || sqlc.narg('search_title') || '%' OR sqlc.narg('search_title') IS NULL)
-ORDER BY created_at DESC
+ORDER BY created_at DESC, id DESC
 LIMIT $1 OFFSET $2;
 
 -- name: CountQuotes :one

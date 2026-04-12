@@ -14,9 +14,11 @@ import (
 
 func quoteRouter(h *handler.QuoteHandler) *chi.Mux {
 	r := chi.NewRouter()
+	r.Get("/quotes", h.List)
 	r.Post("/quotes", h.Create)
 	r.Get("/quotes/{id}", h.Get)
 	r.Put("/quotes/{id}", h.Update)
+	r.Delete("/quotes/{id}", h.Delete)
 	return r
 }
 
@@ -165,6 +167,56 @@ func TestQuoteCreate_CategoryTypeMismatch(t *testing.T) {
 	})
 	assertStatus(t, rec, http.StatusUnprocessableEntity)
 	assertErrorMsg(t, rec, `category type must be "quote"`)
+}
+
+func TestQuoteList_InvalidFilters(t *testing.T) {
+	t.Parallel()
+	router := quoteRouter(&handler.QuoteHandler{Q: nilQ()})
+
+	tests := []struct {
+		name      string
+		query     string
+		wantCode  int
+		wantError string
+	}{
+		{
+			name:      "invalid author_id",
+			query:     "?author_id=not-a-uuid",
+			wantCode:  http.StatusBadRequest,
+			wantError: "invalid author_id",
+		},
+		{
+			name:      "invalid category_id",
+			query:     "?category_id=not-a-uuid",
+			wantCode:  http.StatusBadRequest,
+			wantError: "invalid category_id",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			rec := getRequest(t, router, "/quotes"+tt.query)
+			assertStatus(t, rec, tt.wantCode)
+			assertErrorMsg(t, rec, tt.wantError)
+		})
+	}
+}
+
+func TestQuoteDelete_InvalidUUID(t *testing.T) {
+	t.Parallel()
+	router := quoteRouter(&handler.QuoteHandler{Q: nilQ()})
+	rec := deleteRequest(t, router, "/quotes/not-a-uuid")
+	assertStatus(t, rec, http.StatusBadRequest)
+	assertErrorMsg(t, rec, "invalid UUID")
+}
+
+func TestQuoteDelete_Success(t *testing.T) {
+	t.Parallel()
+	stub := &stubDBTX{}
+	router := quoteRouter(&handler.QuoteHandler{Q: dbq.New(stub)})
+	rec := deleteRequest(t, router, "/quotes/00000000-0000-0000-0000-000000000001")
+	assertStatus(t, rec, http.StatusNoContent)
 }
 
 func TestQuoteCreate_CheckViolation(t *testing.T) {

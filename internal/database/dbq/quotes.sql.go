@@ -103,7 +103,7 @@ FROM quotes
 WHERE (author_id = $3 OR $3 IS NULL)
   AND (category_id = $4 OR $4 IS NULL)
   AND (title ILIKE '%' || $5 || '%' OR $5 IS NULL)
-ORDER BY created_at DESC
+ORDER BY created_at DESC, id DESC
 LIMIT $1 OFFSET $2
 `
 

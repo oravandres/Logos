@@ -19,7 +19,7 @@ CREATE OR REPLACE FUNCTION check_quote_category_type()
 RETURNS TRIGGER AS $$
 BEGIN
     IF NEW.category_id IS NOT NULL THEN
-        PERFORM 1 FROM categories WHERE id = NEW.category_id AND type = 'quote';
+        PERFORM 1 FROM categories WHERE id = NEW.category_id AND type = 'quote' FOR SHARE;
         IF NOT FOUND THEN
             RAISE EXCEPTION 'category must have type quote'
                 USING ERRCODE = '23514',
