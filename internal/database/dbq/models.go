@@ -35,3 +35,14 @@ type Image struct {
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
 }
+
+type Quote struct {
+	ID         pgtype.UUID        `json:"id"`
+	Title      string             `json:"title"`
+	Text       string             `json:"text"`
+	AuthorID   pgtype.UUID        `json:"author_id"`
+	ImageID    pgtype.UUID        `json:"image_id"`
+	CategoryID pgtype.UUID        `json:"category_id"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}

@@ -19,6 +19,7 @@ func New(pool *pgxpool.Pool) *chi.Mux {
 	categories := &handler.CategoryHandler{Q: q}
 	images := &handler.ImageHandler{Q: q}
 	authors := &handler.AuthorHandler{Q: q}
+	quotes := &handler.QuoteHandler{Q: q}
 
 	r := chi.NewRouter()
 
@@ -55,6 +56,14 @@ func New(pool *pgxpool.Pool) *chi.Mux {
 			r.Get("/{id}", authors.Get)
 			r.Put("/{id}", authors.Update)
 			r.Delete("/{id}", authors.Delete)
+		})
+
+		r.Route("/quotes", func(r chi.Router) {
+			r.Get("/", quotes.List)
+			r.Post("/", quotes.Create)
+			r.Get("/{id}", quotes.Get)
+			r.Put("/{id}", quotes.Update)
+			r.Delete("/{id}", quotes.Delete)
 		})
 	})
 

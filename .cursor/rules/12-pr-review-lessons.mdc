@@ -1,0 +1,64 @@
+---
+description: Concrete patterns from PR review feedback — avoid repeating these mistakes
+globs:
+  - "**/*.go"
+  - "**/*.sql"
+  - "**/migrations/*"
+  - ".gitignore"
+alwaysApply: true
+---
+
+Patterns that caused real PR review rounds. Follow these to get PRs right the first time.
+
+## .gitignore
+
+- Anchor binary names with a leading slash (`/logos`) so they don't match directories like `cmd/logos/`.
+
+## Server lifecycle
+
+- When `ListenAndServe` returns, only treat `http.ErrServerClosed` as the expected shutdown case. Any other error (bind failure, invalid address) must propagate as a fatal error with non-zero exit.
+- Do not create timeout contexts before slow operations (like migrations) that don't consume the context. The deadline starts ticking immediately; create the context right before the call that uses it.
+
+## DSN and URL handling
+
+- `pgxpool.ParseConfig` accepts both `postgres://` and `postgresql://` schemes. Any code that rewrites or manipulates DSN schemes must handle both.
+
+## Database error classification
+
+- Inspect `pgconn.PgError.Code` to classify database errors at the handler boundary. Do not map all insert/update errors to a single HTTP status code.
+  - `23505` (unique_violation) → 409 Conflict
+  - `23503` (foreign_key_violation) → 422 Unprocessable Entity
+  - `23514` (check_violation) → 422 Unprocessable Entity
+  - Everything else → 500 Internal Server Error
+- When a foreign key violation is caused by client-supplied input (e.g. an invalid `category_id`), it is a client error, not a server error.
+
+## Cross-table invariants and triggers
+
+- Enforce important cross-table invariants in the database (triggers, check constraints), not only in application code. Application-level pre-checks have TOCTOU races.
+- When a trigger reads a referenced row to validate an invariant, lock the row (`FOR SHARE`) so the check serializes with concurrent updates to that row.
+- Guard invariants bidirectionally. If entity A requires `categories.type = 'X'`, also add a trigger on `categories` that prevents changing the type while entity A references it.
+- Handler-level pre-checks are still valuable for fast UX feedback, but they are a convenience layer — the database trigger is the safety net.
+
+## Migrations
+
+- Down migrations must only drop objects created by the corresponding up migration. Never drop shared or database-global objects (like extensions) that may be used by other features or may have existed before the migration.
+- When adding database extensions (`CREATE EXTENSION IF NOT EXISTS ...`), understand that extensions are database-global. Do not assume ownership of them in rollback.
+
+## Indexing and query patterns
+
+- Choose index types deliberately based on the actual query pattern:
+  - B-tree indexes work for equality, range, and prefix (`LIKE 'foo%'`) queries.
+  - B-tree indexes **cannot** accelerate `ILIKE '%substring%'` searches. Use a `pg_trgm` GIN index for substring/trigram matching.
+- Offset-paginated queries must have a fully deterministic `ORDER BY`. If the primary sort column can have ties (e.g. `created_at`), add a tiebreaker column (e.g. `ORDER BY created_at DESC, id DESC`).
+
+## Input validation
+
+- Validate cross-field constraints, not just individual fields. When a request contains related fields (e.g. `born_date` and `died_date`), validate their relationship (e.g. `died_date >= born_date`).
+- Validate semantic correctness of foreign key references before insert when the schema requires it (e.g. check that a `category_id` points to a category with the correct `type`).
+
+## Testing
+
+- Every handler route (`List`, `Get`, `Create`, `Update`, `Delete`) must have at least one test. Do not skip routes that seem trivial.
+- New validation branches, error-mapping logic, and input-parsing code must have table-driven tests covering both happy and unhappy paths.
+- Test the DB error classification paths (FK violations, check violations, unique violations) using a stub DBTX that returns the appropriate `pgconn.PgError`.
+- Test filter/query-parameter parsing in List handlers (valid filters, invalid UUID filters).

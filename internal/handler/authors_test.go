@@ -84,6 +84,14 @@ func getRequest(t *testing.T, router http.Handler, path string) *httptest.Respon
 	return rec
 }
 
+func deleteRequest(t *testing.T, router http.Handler, path string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodDelete, path, nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	return rec
+}
+
 func assertStatus(t *testing.T, rec *httptest.ResponseRecorder, want int) {
 	t.Helper()
 	if rec.Code != want {
@@ -250,7 +258,7 @@ func TestAuthorCreate_CategoryTypeMismatch(t *testing.T) {
 		"category_id": "00000000-0000-0000-0000-000000000001",
 	})
 	assertStatus(t, rec, http.StatusUnprocessableEntity)
-	assertErrorMsg(t, rec, "category type must be 'author'")
+	assertErrorMsg(t, rec, `category type must be "author"`)
 }
 
 func TestAuthorCreate_CheckViolation(t *testing.T) {
@@ -276,7 +284,7 @@ func TestAuthorCreate_CheckViolation(t *testing.T) {
 		"category_id": "00000000-0000-0000-0000-000000000001",
 	})
 	assertStatus(t, rec, http.StatusUnprocessableEntity)
-	assertErrorMsg(t, rec, "category type must be 'author'")
+	assertErrorMsg(t, rec, `category type must be "author"`)
 }
 
 // scanCategoryRow populates a Category row on Scan, matching the GetCategory column order.
