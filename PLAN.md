@@ -382,15 +382,15 @@ Final image is ~10-15 MB with the static Go binary + migration SQL files.
 
 | Phase | Scope | Deliverable |
 |-------|-------|-------------|
-| **Phase 1** | Project skeleton | `go.mod`, `Dockerfile`, `cmd/logos/main.go` (health + metrics), `.gitignore`, config |
-| **Phase 2** | Database layer | Migrations (SQL files), sqlc config + queries, connection pool setup |
-| **Phase 3** | Categories CRUD | Handler, model types, SQL queries, tests |
-| **Phase 4** | Images CRUD | Handler, model types, SQL queries, tests |
-| **Phase 5** | Authors CRUD | Handler, model types (with image/category joins), SQL queries, tests |
-| **Phase 6** | Quotes CRUD | Handler, model types (with author/image/category joins), SQL queries, tests |
-| **Phase 7** | Tags CRUD + quote-tag association | Handler, model types, join queries, tests |
-| **Phase 8** | Kubernetes manifests (MiMi repo) | Namespace, PostgreSQL StatefulSet, Logos Deployment, Ingress, Argo CD app, ServiceMonitor, SealedSecret |
-| **Phase 9** | Build script + README | `build-and-import.sh`, updated `README.md` |
+| ~~Phase 1~~ | Project skeleton | `go.mod`, `Dockerfile`, `cmd/logos/main.go` (health + metrics), `.gitignore`, config |
+| ~~Phase 2~~ | Database layer | Migrations (SQL files), sqlc config + queries, connection pool setup |
+| ~~Phase 3~~ | Categories CRUD | Handler, model types, SQL queries, tests |
+| ~~Phase 4~~ | Images CRUD | Handler, model types, SQL queries, tests |
+| ~~Phase 5~~ | Authors CRUD | Handler, model types (with image/category joins), SQL queries, tests |
+| ~~Phase 6~~ | Quotes CRUD | Handler, model types (with author/image/category joins), SQL queries, tests |
+| ~~Phase 7~~ | Tags CRUD + quote-tag association | Handler, model types, join queries, tests |
+| ~~Phase 8~~ | Kubernetes manifests (MiMi repo) | Namespace, PostgreSQL StatefulSet, Logos Deployment, Ingress, Argo CD app, ServiceMonitor, SealedSecret |
+| ~~Phase 9~~ | Build script + README | `build-and-import.sh`, updated `README.md` |
 
 ---
 

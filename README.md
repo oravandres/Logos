@@ -71,6 +71,11 @@ make install-hooks
 ```bash
 # Build container image and import into k3s
 ./build-and-import.sh
+
+# Kubernetes manifests live in the MiMi repo (manifests/logos/).
+# Argo CD auto-syncs once manifests are pushed to MiMi main.
+# After importing the image, restart the deployment:
+kubectl rollout restart deployment logos-api -n logos
 ```
 
 ## API Endpoints
