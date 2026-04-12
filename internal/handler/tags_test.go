@@ -3,6 +3,7 @@ package handler_test
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -42,6 +43,12 @@ func TestTagCreate_Validation(t *testing.T) {
 			body:      map[string]any{"name": ""},
 			wantCode:  http.StatusBadRequest,
 			wantError: "name is required",
+		},
+		{
+			name:      "name too long",
+			body:      map[string]any{"name": strings.Repeat("a", 101)},
+			wantCode:  http.StatusBadRequest,
+			wantError: "name must be 100 characters or fewer",
 		},
 	}
 

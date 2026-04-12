@@ -1,9 +1,11 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/oravandres/Logos/internal/database/dbq"
 	"github.com/oravandres/Logos/internal/model"
 )
@@ -13,11 +15,32 @@ type QuoteTagHandler struct {
 	Q *dbq.Queries
 }
 
-// ListTags returns all tags associated with a given quote.
-func (h *QuoteTagHandler) ListTags(w http.ResponseWriter, r *http.Request) {
+// requireQuote verifies the quote exists and returns its UUID, writing a
+// 400/404/500 response and returning false when the caller should stop.
+func (h *QuoteTagHandler) requireQuote(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
 	quoteID, err := parseUUID(r, "id")
 	if err != nil {
 		respondError(w, http.StatusBadRequest, err.Error())
+		return uuid.Nil, false
+	}
+
+	_, err = h.Q.GetQuote(r.Context(), model.UUIDToPgtype(quoteID))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			respondError(w, http.StatusNotFound, "quote not found")
+			return uuid.Nil, false
+		}
+		respondError(w, http.StatusInternalServerError, "failed to verify quote")
+		return uuid.Nil, false
+	}
+
+	return quoteID, true
+}
+
+// ListTags returns all tags associated with a given quote.
+func (h *QuoteTagHandler) ListTags(w http.ResponseWriter, r *http.Request) {
+	quoteID, ok := h.requireQuote(w, r)
+	if !ok {
 		return
 	}
 
@@ -37,9 +60,8 @@ type addTagBody struct {
 
 // AddTag associates a tag with a quote. Idempotent via ON CONFLICT DO NOTHING.
 func (h *QuoteTagHandler) AddTag(w http.ResponseWriter, r *http.Request) {
-	quoteID, err := parseUUID(r, "id")
-	if err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
+	quoteID, ok := h.requireQuote(w, r)
+	if !ok {
 		return
 	}
 
@@ -59,7 +81,7 @@ func (h *QuoteTagHandler) AddTag(w http.ResponseWriter, r *http.Request) {
 		TagID:   model.UUIDToPgtype(body.TagID),
 	}); err != nil {
 		if isFKViolation(err) {
-			respondError(w, http.StatusUnprocessableEntity, "referenced quote or tag does not exist")
+			respondError(w, http.StatusUnprocessableEntity, "referenced tag does not exist")
 			return
 		}
 		respondError(w, http.StatusInternalServerError, "failed to add tag to quote")

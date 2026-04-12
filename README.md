@@ -34,7 +34,7 @@ queries/            SQL source files (sqlc input)
 | `API_HOST` | `0.0.0.0` | Bind address |
 | `API_PORT` | `8000` | Bind port |
 | `LOG_LEVEL` | `info` | Log level (debug, info, warn, error) |
-| `CORS_ALLOWED_ORIGINS` | `*` | Comma-separated list of allowed CORS origins |
+| `CORS_ALLOWED_ORIGINS` | *(none — CORS disabled)* | Comma-separated list of allowed CORS origins |
 
 ## Development
 

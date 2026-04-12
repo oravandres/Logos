@@ -74,6 +74,10 @@ func (h *TagHandler) Create(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "name is required")
 		return
 	}
+	if len(req.Name) > 100 {
+		respondError(w, http.StatusBadRequest, "name must be 100 characters or fewer")
+		return
+	}
 
 	tag, err := h.Q.CreateTag(r.Context(), req.Name)
 	if err != nil {

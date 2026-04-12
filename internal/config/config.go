@@ -25,7 +25,7 @@ func Load() Config {
 		APIPort:            envIntOrDefault("API_PORT", 8000),
 		LogLevel:           envOrDefault("LOG_LEVEL", "info"),
 		MigrationsPath:     envOrDefault("MIGRATIONS_PATH", ""),
-		CORSAllowedOrigins: envSlice("CORS_ALLOWED_ORIGINS", []string{"*"}),
+		CORSAllowedOrigins: envSlice("CORS_ALLOWED_ORIGINS", nil),
 	}
 }
 
@@ -46,7 +46,15 @@ func envSlice(key string, fallback []string) []string {
 	if v == "" {
 		return fallback
 	}
-	return strings.Split(v, ",")
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func envIntOrDefault(key string, fallback int) int {

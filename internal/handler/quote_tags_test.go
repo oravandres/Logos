@@ -20,6 +20,22 @@ func quoteTagRouter(h *handler.QuoteTagHandler) *chi.Mux {
 	return r
 }
 
+// scanQuoteRow returns nil from Scan, simulating a found quote row.
+type scanQuoteRow struct{}
+
+func (scanQuoteRow) Scan(_ ...any) error { return nil }
+
+// quoteExistsStub returns a DBTX where GetQuote (QueryRow) succeeds
+// but Exec can be overridden for the subsequent AddTagToQuote call.
+func quoteExistsExecStub(execFn func(context.Context, string, ...any) (pgconn.CommandTag, error)) *execDBTX {
+	return &execDBTX{
+		execFn: execFn,
+		queryRowFn: func(_ context.Context, _ string, _ ...any) pgx.Row {
+			return scanQuoteRow{}
+		},
+	}
+}
+
 func TestQuoteTagListTags_InvalidUUID(t *testing.T) {
 	t.Parallel()
 	router := quoteTagRouter(&handler.QuoteTagHandler{Q: nilQ()})
@@ -28,66 +44,56 @@ func TestQuoteTagListTags_InvalidUUID(t *testing.T) {
 	assertErrorMsg(t, rec, "invalid UUID")
 }
 
-func TestQuoteTagAddTag_Validation(t *testing.T) {
+func TestQuoteTagListTags_QuoteNotFound(t *testing.T) {
 	t.Parallel()
 	router := quoteTagRouter(&handler.QuoteTagHandler{Q: nilQ()})
+	rec := getRequest(t, router, "/quotes/00000000-0000-0000-0000-000000000001/tags")
+	assertStatus(t, rec, http.StatusNotFound)
+	assertErrorMsg(t, rec, "quote not found")
+}
 
-	tests := []struct {
-		name      string
-		path      string
-		body      map[string]any
-		wantCode  int
-		wantError string
-	}{
-		{
-			name:      "invalid quote UUID",
-			path:      "/quotes/not-a-uuid/tags",
-			body:      map[string]any{"tag_id": "00000000-0000-0000-0000-000000000001"},
-			wantCode:  http.StatusBadRequest,
-			wantError: "invalid UUID",
-		},
-		{
-			name:      "missing tag_id",
-			path:      "/quotes/00000000-0000-0000-0000-000000000001/tags",
-			body:      map[string]any{},
-			wantCode:  http.StatusBadRequest,
-			wantError: "tag_id is required",
-		},
-	}
+func TestQuoteTagAddTag_InvalidQuoteUUID(t *testing.T) {
+	t.Parallel()
+	router := quoteTagRouter(&handler.QuoteTagHandler{Q: nilQ()})
+	rec := postJSON(t, router, "/quotes/not-a-uuid/tags", map[string]any{
+		"tag_id": "00000000-0000-0000-0000-000000000001",
+	})
+	assertStatus(t, rec, http.StatusBadRequest)
+	assertErrorMsg(t, rec, "invalid UUID")
+}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			rec := postJSON(t, router, tt.path, tt.body)
-			assertStatus(t, rec, tt.wantCode)
-			assertErrorMsg(t, rec, tt.wantError)
-		})
-	}
+func TestQuoteTagAddTag_QuoteNotFound(t *testing.T) {
+	t.Parallel()
+	router := quoteTagRouter(&handler.QuoteTagHandler{Q: nilQ()})
+	rec := postJSON(t, router, "/quotes/00000000-0000-0000-0000-000000000001/tags", map[string]any{
+		"tag_id": "00000000-0000-0000-0000-000000000002",
+	})
+	assertStatus(t, rec, http.StatusNotFound)
+	assertErrorMsg(t, rec, "quote not found")
+}
+
+func TestQuoteTagAddTag_MissingTagID(t *testing.T) {
+	t.Parallel()
+	stub := quoteExistsExecStub(nil)
+	router := quoteTagRouter(&handler.QuoteTagHandler{Q: dbq.New(stub)})
+	rec := postJSON(t, router, "/quotes/00000000-0000-0000-0000-000000000001/tags", map[string]any{})
+	assertStatus(t, rec, http.StatusBadRequest)
+	assertErrorMsg(t, rec, "tag_id is required")
 }
 
 func TestQuoteTagAddTag_FKViolation(t *testing.T) {
 	t.Parallel()
 	fkErr := &pgconn.PgError{Code: "23503", Message: "foreign key violation"}
-	stub := &stubDBTX{
-		queryRowFn: func(_ context.Context, _ string, _ ...any) pgx.Row {
-			return errRow{err: fkErr}
-		},
-	}
-
-	execStub := &execDBTX{
-		execFn: func(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
-			return pgconn.CommandTag{}, fkErr
-		},
-	}
-	_ = stub // keep for reference
-
-	router := quoteTagRouter(&handler.QuoteTagHandler{Q: dbq.New(execStub)})
+	stub := quoteExistsExecStub(func(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
+		return pgconn.CommandTag{}, fkErr
+	})
+	router := quoteTagRouter(&handler.QuoteTagHandler{Q: dbq.New(stub)})
 
 	rec := postJSON(t, router, "/quotes/00000000-0000-0000-0000-000000000001/tags", map[string]any{
 		"tag_id": "00000000-0000-0000-0000-000000000099",
 	})
 	assertStatus(t, rec, http.StatusUnprocessableEntity)
-	assertErrorMsg(t, rec, "referenced quote or tag does not exist")
+	assertErrorMsg(t, rec, "referenced tag does not exist")
 }
 
 func TestQuoteTagRemoveTag_InvalidUUIDs(t *testing.T) {
@@ -119,9 +125,10 @@ func TestQuoteTagRemoveTag_Success(t *testing.T) {
 	assertStatus(t, rec, http.StatusNoContent)
 }
 
-// execDBTX extends stubDBTX with a controllable Exec implementation.
+// execDBTX supports controllable Exec and QueryRow implementations.
 type execDBTX struct {
-	execFn func(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	execFn     func(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	queryRowFn func(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
 func (s *execDBTX) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
@@ -135,6 +142,9 @@ func (s *execDBTX) Query(_ context.Context, _ string, _ ...any) (pgx.Rows, error
 	return nil, nil
 }
 
-func (s *execDBTX) QueryRow(_ context.Context, _ string, _ ...any) pgx.Row {
+func (s *execDBTX) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	if s.queryRowFn != nil {
+		return s.queryRowFn(ctx, sql, args...)
+	}
 	return errRow{err: pgx.ErrNoRows}
 }
