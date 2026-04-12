@@ -138,6 +138,10 @@ func (h *CategoryHandler) Update(w http.ResponseWriter, r *http.Request) {
 			respondError(w, http.StatusConflict, "category with this name and type already exists")
 			return
 		}
+		if isCheckViolation(err) {
+			respondError(w, http.StatusConflict, "cannot change category type while it is referenced by other entities")
+			return
+		}
 		respondError(w, http.StatusInternalServerError, "failed to update category")
 		return
 	}

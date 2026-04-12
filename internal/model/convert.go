@@ -1,6 +1,8 @@
 package model
 
 import (
+	"time"
+
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -39,4 +41,25 @@ func StringToPgtext(s string) pgtype.Text {
 		return pgtype.Text{}
 	}
 	return pgtype.Text{String: s, Valid: true}
+}
+
+// DateFromPgtype converts a pgtype.Date into a *string in "YYYY-MM-DD" format.
+func DateFromPgtype(d pgtype.Date) *string {
+	if !d.Valid {
+		return nil
+	}
+	s := d.Time.Format("2006-01-02")
+	return &s
+}
+
+// OptionalStringToPgdate parses an optional "YYYY-MM-DD" string into a pgtype.Date.
+func OptionalStringToPgdate(s *string) (pgtype.Date, error) {
+	if s == nil || *s == "" {
+		return pgtype.Date{}, nil
+	}
+	t, err := time.Parse("2006-01-02", *s)
+	if err != nil {
+		return pgtype.Date{}, err
+	}
+	return pgtype.Date{Time: t, Valid: true}, nil
 }
