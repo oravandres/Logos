@@ -5,6 +5,9 @@ globs:
   - "**/*.sql"
   - "**/migrations/*"
   - ".gitignore"
+  - "**/*.yaml"
+  - "**/Dockerfile"
+  - "**/*.sh"
 alwaysApply: true
 ---
 
@@ -71,6 +74,15 @@ Patterns that caused real PR review rounds. Follow these to get PRs right the fi
 - Validate cross-field constraints, not just individual fields. When a request contains related fields (e.g. `born_date` and `died_date`), validate their relationship (e.g. `died_date >= born_date`).
 - Validate semantic correctness of foreign key references before insert when the schema requires it (e.g. check that a `category_id` points to a category with the correct `type`).
 - Validate field length limits in the handler when the database column has a `VARCHAR(N)` constraint. Letting an oversized value reach Postgres produces a generic 500 error instead of a clear 400.
+
+## Kubernetes manifests
+
+- Never commit plaintext Kubernetes `Secret` manifests to a Git repository. Use `SealedSecret` (or an equivalent encrypted-at-rest mechanism) and store sealed values in the dedicated secrets repo. Plaintext secrets in Git break the sealed-secrets model and make rotation/audit much harder.
+- Pin stateful workload images (databases, message queues, caches) to a specific patch version or digest. Floating tags like `postgres:16-alpine` can pull a newer build on a reschedule, turning routine operations into accidental upgrades with undefined rollback behavior.
+- Pin application images to an immutable tag (git SHA, semver) rather than `:latest`. Use `imagePullPolicy: IfNotPresent` instead of `Never` so the kubelet behavior is deterministic and rollbacks work correctly in GitOps.
+- Do not expose internal operational endpoints (e.g. `/metrics`, `/debug/pprof`) through the public ingress. Let Prometheus scrape via `ServiceMonitor` on the ClusterIP service directly.
+- When deploying a workload to a new namespace, ensure it inherits the cluster's baseline safety controls: `ResourceQuota`, `LimitRange`, `pod-security.kubernetes.io/enforce` label, and Kyverno/OPA policies. Otherwise the namespace silently opts out of all guardrails.
+- Build scripts for local k3s import should tag images with an immutable identifier (e.g. `$(git rev-parse --short HEAD)`) and print the tag so the operator knows which version to put in the manifest.
 
 ## Testing
 
