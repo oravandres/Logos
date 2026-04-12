@@ -14,3 +14,22 @@ CREATE TABLE authors (
 
 CREATE INDEX ix_authors_name_trgm ON authors USING gin (name gin_trgm_ops);
 CREATE INDEX ix_authors_category_id ON authors (category_id);
+
+CREATE OR REPLACE FUNCTION check_author_category_type()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.category_id IS NOT NULL THEN
+        PERFORM 1 FROM categories WHERE id = NEW.category_id AND type = 'author';
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'category must have type author'
+                USING ERRCODE = '23514',
+                      CONSTRAINT = 'chk_authors_category_type';
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_authors_category_type
+    BEFORE INSERT OR UPDATE ON authors
+    FOR EACH ROW EXECUTE FUNCTION check_author_category_type();

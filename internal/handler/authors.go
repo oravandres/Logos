@@ -131,6 +131,10 @@ func (h *AuthorHandler) Create(w http.ResponseWriter, r *http.Request) {
 		CategoryID: model.OptionalUUIDToPgtype(req.CategoryID),
 	})
 	if err != nil {
+		if isCheckViolation(err) {
+			respondError(w, http.StatusUnprocessableEntity, "category type must be 'author'")
+			return
+		}
 		if isFKViolation(err) {
 			respondError(w, http.StatusUnprocessableEntity, "referenced image or category does not exist")
 			return
@@ -197,6 +201,10 @@ func (h *AuthorHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			respondError(w, http.StatusNotFound, "author not found")
+			return
+		}
+		if isCheckViolation(err) {
+			respondError(w, http.StatusUnprocessableEntity, "category type must be 'author'")
 			return
 		}
 		if isFKViolation(err) {

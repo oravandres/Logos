@@ -49,6 +49,7 @@ func authorRouter(h *handler.AuthorHandler) *chi.Mux {
 	return r
 }
 
+//nolint:unparam // path varies once quotes/tags handler tests are added
 func postJSON(t *testing.T, router http.Handler, path string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 	b, err := json.Marshal(body)
@@ -252,6 +253,32 @@ func TestAuthorCreate_CategoryTypeMismatch(t *testing.T) {
 	assertErrorMsg(t, rec, "category type must be 'author'")
 }
 
+func TestAuthorCreate_CheckViolation(t *testing.T) {
+	t.Parallel()
+	// Simulates the trigger catching a category type mismatch that slipped
+	// past the handler pre-check (race condition). The first QueryRow call
+	// is GetCategory (pre-check passes with correct type), the second is
+	// CreateAuthor which fails with a check_violation from the trigger.
+	callCount := 0
+	stub := &stubDBTX{
+		queryRowFn: func(_ context.Context, _ string, _ ...any) pgx.Row {
+			callCount++
+			if callCount == 1 {
+				return &scanCategoryRow{name: "philosopher", catType: "author"}
+			}
+			return errRow{err: &pgconn.PgError{Code: "23514", ConstraintName: "chk_authors_category_type"}}
+		},
+	}
+	router := authorRouter(&handler.AuthorHandler{Q: dbq.New(stub)})
+
+	rec := postJSON(t, router, "/authors", map[string]any{
+		"name":        "Socrates",
+		"category_id": "00000000-0000-0000-0000-000000000001",
+	})
+	assertStatus(t, rec, http.StatusUnprocessableEntity)
+	assertErrorMsg(t, rec, "category type must be 'author'")
+}
+
 // scanCategoryRow populates a Category row on Scan, matching the GetCategory column order.
 type scanCategoryRow struct {
 	name    string
@@ -263,7 +290,6 @@ func (r *scanCategoryRow) Scan(dest ...any) error {
 	if len(dest) < 4 {
 		return pgx.ErrNoRows
 	}
-	// id — leave zero-value (Valid: false is fine for test)
 	// name
 	if p, ok := dest[1].(*string); ok {
 		*p = r.name

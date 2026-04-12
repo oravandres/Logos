@@ -1,2 +1,2 @@
 DROP TABLE IF EXISTS authors;
-DROP EXTENSION IF EXISTS pg_trgm;
+DROP FUNCTION IF EXISTS check_author_category_type();
