@@ -17,6 +17,9 @@ WHERE (author_id = sqlc.narg('filter_author_id') OR sqlc.narg('filter_author_id'
 SELECT id, title, text, author_id, image_id, category_id, created_at, updated_at
 FROM quotes WHERE id = $1;
 
+-- name: GetQuoteForKeyShare :one
+SELECT id FROM quotes WHERE id = $1 FOR KEY SHARE;
+
 -- name: CreateQuote :one
 INSERT INTO quotes (title, text, author_id, image_id, category_id)
 VALUES ($1, $2, $3, $4, $5)

@@ -49,7 +49,6 @@ func authorRouter(h *handler.AuthorHandler) *chi.Mux {
 	return r
 }
 
-//nolint:unparam // path varies once quotes/tags handler tests are added
 func postJSON(t *testing.T, router http.Handler, path string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 	b, err := json.Marshal(body)

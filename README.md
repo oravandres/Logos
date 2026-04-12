@@ -34,6 +34,7 @@ queries/            SQL source files (sqlc input)
 | `API_HOST` | `0.0.0.0` | Bind address |
 | `API_PORT` | `8000` | Bind port |
 | `LOG_LEVEL` | `info` | Log level (debug, info, warn, error) |
+| `CORS_ALLOWED_ORIGINS` | *(none — CORS disabled)* | Comma-separated list of allowed CORS origins |
 
 ## Development
 
@@ -57,6 +58,12 @@ Run before pushing:
 
 ```bash
 make verify
+```
+
+Install the pre-push git hook to run lint + tests automatically before every push:
+
+```bash
+make install-hooks
 ```
 
 ## Build & Deploy
@@ -93,4 +100,11 @@ Base path: `/api/v1`
 | `GET` | `/quotes/{id}` | Get quote |
 | `PUT` | `/quotes/{id}` | Update quote |
 | `DELETE` | `/quotes/{id}` | Delete quote |
+| `GET` | `/quotes/{id}/tags` | List tags for a quote |
+| `POST` | `/quotes/{id}/tags` | Add tag to quote (body: `{tag_id}`) |
+| `DELETE` | `/quotes/{id}/tags/{tagID}` | Remove tag from quote |
+| `GET` | `/tags` | List tags |
+| `POST` | `/tags` | Create tag |
+| `GET` | `/tags/{id}` | Get tag |
+| `DELETE` | `/tags/{id}` | Delete tag (cascades associations) |
 | `GET` | `/metrics` | Prometheus metrics |

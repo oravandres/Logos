@@ -51,10 +51,26 @@ Patterns that caused real PR review rounds. Follow these to get PRs right the fi
   - B-tree indexes **cannot** accelerate `ILIKE '%substring%'` searches. Use a `pg_trgm` GIN index for substring/trigram matching.
 - Offset-paginated queries must have a fully deterministic `ORDER BY`. If the primary sort column can have ties (e.g. `created_at`), add a tiebreaker column (e.g. `ORDER BY created_at DESC, id DESC`).
 
+## Security defaults
+
+- Security-sensitive configuration (CORS origins, auth tokens, etc.) must default to the most restrictive state. CORS should have no allowed origins by default; the middleware should only be installed when an explicit allowlist is configured.
+- Fail closed, not open. If an env var is unset, the behavior should be equivalent to "deny all", not "allow all".
+
+## Configuration parsing
+
+- When parsing comma-separated environment variables, trim whitespace from each element and drop empty strings. `strings.Split("a, b", ",")` produces `["a", " b"]` — the leading space will silently break matchers (CORS, ACLs, etc.).
+
+## Sub-resource endpoints
+
+- Sub-resource endpoints (e.g. `GET /quotes/{id}/tags`, `POST /quotes/{id}/tags`) must verify the parent resource exists before operating on children. Return `404` when the parent is missing — do not let a join query silently return `200 []` for a nonexistent parent.
+- When a sub-resource write fails with a FK violation, distinguish whether the parent or child is missing. If the parent is in the URL path, validate it first and return `404`; reserve `422` for a bad child reference in the request body.
+- The parent-existence check and the child operation must be atomic. Use a transaction that locks the parent row (`SELECT ... FOR KEY SHARE`) so a concurrent delete cannot slip between the check and the child insert/read. Without this, the check-then-act pattern has a TOCTOU race.
+
 ## Input validation
 
 - Validate cross-field constraints, not just individual fields. When a request contains related fields (e.g. `born_date` and `died_date`), validate their relationship (e.g. `died_date >= born_date`).
 - Validate semantic correctness of foreign key references before insert when the schema requires it (e.g. check that a `category_id` points to a category with the correct `type`).
+- Validate field length limits in the handler when the database column has a `VARCHAR(N)` constraint. Letting an oversized value reach Postgres produces a generic 500 error instead of a clear 400.
 
 ## Testing
 

@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "==> Running pre-push checks..."
+
+echo "--- go mod tidy"
+go mod tidy
+if ! git diff --quiet go.mod go.sum; then
+  echo "ERROR: go.mod/go.sum not tidy. Please commit the changes."
+  git diff --stat go.mod go.sum
+  exit 1
+fi
+
+echo "--- go vet"
+go vet ./...
+
+echo "--- golangci-lint"
+golangci-lint run ./...
+
+echo "--- go test"
+go test ./... -count=1 -timeout 60s
+
+echo "--- go build"
+go build ./cmd/logos
+
+echo "==> All checks passed."

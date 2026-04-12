@@ -97,6 +97,16 @@ func (q *Queries) GetQuote(ctx context.Context, id pgtype.UUID) (Quote, error) {
 	return i, err
 }
 
+const getQuoteForKeyShare = `-- name: GetQuoteForKeyShare :one
+SELECT id FROM quotes WHERE id = $1 FOR KEY SHARE
+`
+
+func (q *Queries) GetQuoteForKeyShare(ctx context.Context, id pgtype.UUID) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, getQuoteForKeyShare, id)
+	err := row.Scan(&id)
+	return id, err
+}
+
 const listQuotes = `-- name: ListQuotes :many
 SELECT id, title, text, author_id, image_id, category_id, created_at, updated_at
 FROM quotes

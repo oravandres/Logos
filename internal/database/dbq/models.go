@@ -46,3 +46,14 @@ type Quote struct {
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
 }
+
+type QuoteTag struct {
+	QuoteID pgtype.UUID `json:"quote_id"`
+	TagID   pgtype.UUID `json:"tag_id"`
+}
+
+type Tag struct {
+	ID        pgtype.UUID        `json:"id"`
+	Name      string             `json:"name"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
