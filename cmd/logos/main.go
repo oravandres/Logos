@@ -47,7 +47,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:         cfg.ListenAddr(),
-		Handler:      router.New(pool),
+		Handler:      router.New(pool, cfg),
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  60 * time.Second,
