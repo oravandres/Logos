@@ -15,7 +15,9 @@ docker save "${IMAGE}" | sudo k3s ctr images import -
 
 echo "=== Done! ==="
 echo "Image: ${IMAGE}"
+echo "GitOps (GHCR): ghcr.io/oravandres/logos/logos-api:${VERSION}"
 echo ""
 echo "Update the deployment manifest tag:"
-echo "  image: ${IMAGE}"
+echo "  image: ghcr.io/oravandres/logos/logos-api:${VERSION}"
+echo "  (or local import): image: ${IMAGE}"
 sudo k3s ctr images ls | grep logos-api
