@@ -82,6 +82,7 @@ Patterns that caused real PR review rounds. Follow these to get PRs right the fi
 - Pin application images to an immutable tag (git SHA, semver) rather than `:latest`. Use `imagePullPolicy: IfNotPresent` instead of `Never` so the kubelet behavior is deterministic and rollbacks work correctly in GitOps.
 - Do not expose internal operational endpoints (e.g. `/metrics`, `/debug/pprof`) through the public ingress. Let Prometheus scrape via `ServiceMonitor` on the ClusterIP service directly.
 - When deploying a workload to a new namespace, ensure it inherits the cluster's baseline safety controls: `ResourceQuota`, `LimitRange`, `pod-security.kubernetes.io/enforce` label, and Kyverno/OPA policies. Otherwise the namespace silently opts out of all guardrails.
+- Workloads in `pod-security.kubernetes.io/enforce: restricted` namespaces must declare pod- and container-level `securityContext` compatible with the profile (`runAsNonRoot`, `seccompProfile.type: RuntimeDefault`, `allowPrivilegeEscalation: false`, `capabilities.drop: ["ALL"]`), and `runAsUser`/`runAsGroup` must match the image’s non-root user (e.g. distroless `:nonroot` uses 65532; official `postgres` Alpine uses uid/gid 70).
 - Build scripts for local k3s import should tag images with an immutable identifier (e.g. `$(git rev-parse --short HEAD)`) and print the tag so the operator knows which version to put in the manifest.
 
 ## Testing
