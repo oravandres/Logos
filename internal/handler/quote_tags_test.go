@@ -2,6 +2,7 @@ package handler_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"testing"
 
@@ -52,6 +53,12 @@ func (b *stubTxBeginner) Begin(_ context.Context) (pgx.Tx, error) {
 	return &stubTx{dbtx: b.dbtx}, nil
 }
 
+type errTxBeginner struct{ err error }
+
+func (b *errTxBeginner) Begin(context.Context) (pgx.Tx, error) {
+	return nil, b.err
+}
+
 // quoteNotFoundHandler returns a QuoteTagHandler where GetQuoteForKeyShare
 // returns pgx.ErrNoRows (quote does not exist).
 func quoteNotFoundHandler() *handler.QuoteTagHandler {
@@ -96,6 +103,20 @@ func TestQuoteTagListTags_QuoteNotFound(t *testing.T) {
 	rec := getRequest(t, router, "/quotes/00000000-0000-0000-0000-000000000001/tags")
 	assertStatus(t, rec, http.StatusNotFound)
 	assertErrorMsg(t, rec, "quote not found")
+}
+
+func TestQuoteTagListTags_BeginTransactionFailure(t *testing.T) {
+	t.Parallel()
+
+	h := &handler.QuoteTagHandler{
+		Q:    dbq.New(&stubDBTX{}),
+		Pool: &errTxBeginner{err: errors.New("begin failed")},
+	}
+	router := quoteTagRouter(h)
+
+	rec := getRequest(t, router, "/quotes/00000000-0000-0000-0000-000000000001/tags")
+	assertStatus(t, rec, http.StatusInternalServerError)
+	assertErrorMsg(t, rec, "failed to begin transaction")
 }
 
 func TestQuoteTagAddTag_InvalidQuoteUUID(t *testing.T) {
