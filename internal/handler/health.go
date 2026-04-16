@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -14,9 +15,9 @@ type HealthHandler struct {
 // Check pings the database and reports healthy/unhealthy status.
 func (h *HealthHandler) Check(w http.ResponseWriter, r *http.Request) {
 	if err := h.Pool.Ping(r.Context()); err != nil {
+		slog.Error("database ping failed", "error", err)
 		respondJSON(w, http.StatusServiceUnavailable, map[string]string{
 			"status": "unhealthy",
-			"error":  err.Error(),
 		})
 		return
 	}
