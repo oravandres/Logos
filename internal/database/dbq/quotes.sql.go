@@ -67,13 +67,14 @@ func (q *Queries) CreateQuote(ctx context.Context, arg CreateQuoteParams) (Quote
 	return i, err
 }
 
-const deleteQuote = `-- name: DeleteQuote :exec
-DELETE FROM quotes WHERE id = $1
+const deleteQuote = `-- name: DeleteQuote :one
+DELETE FROM quotes WHERE id = $1 RETURNING id
 `
 
-func (q *Queries) DeleteQuote(ctx context.Context, id pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, deleteQuote, id)
-	return err
+func (q *Queries) DeleteQuote(ctx context.Context, id pgtype.UUID) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, deleteQuote, id)
+	err := row.Scan(&id)
+	return id, err
 }
 
 const getQuote = `-- name: GetQuote :one

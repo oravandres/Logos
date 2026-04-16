@@ -22,5 +22,5 @@ SET name = $1, type = $2
 WHERE id = $3
 RETURNING id, name, type, created_at;
 
--- name: DeleteCategory :exec
-DELETE FROM categories WHERE id = $1;
+-- name: DeleteCategory :one
+DELETE FROM categories WHERE id = $1 RETURNING id;

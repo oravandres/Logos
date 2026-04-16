@@ -213,11 +213,19 @@ func TestQuoteDelete_InvalidUUID(t *testing.T) {
 
 func TestQuoteDelete_Success(t *testing.T) {
 	t.Parallel()
-	stub := &stubDBTX{}
+	stub := &stubDBTX{
+		queryRowFn: func(_ context.Context, _ string, _ ...any) pgx.Row {
+			return dummyDeleteRow{}
+		},
+	}
 	router := quoteRouter(&handler.QuoteHandler{Q: dbq.New(stub)})
 	rec := deleteRequest(t, router, "/quotes/00000000-0000-0000-0000-000000000001")
 	assertStatus(t, rec, http.StatusNoContent)
 }
+
+type dummyDeleteRow struct{}
+
+func (dummyDeleteRow) Scan(_ ...any) error { return nil }
 
 func TestQuoteCreate_CheckViolation(t *testing.T) {
 	t.Parallel()

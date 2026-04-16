@@ -102,7 +102,16 @@ func TestTagDelete_InvalidUUID(t *testing.T) {
 
 func TestTagDelete_Success(t *testing.T) {
 	t.Parallel()
-	router := tagRouter(&handler.TagHandler{Q: nilQ()})
+	stub := &stubDBTX{
+		queryRowFn: func(_ context.Context, _ string, _ ...any) pgx.Row {
+			return dummyDeleteRow{}
+		},
+	}
+	router := tagRouter(&handler.TagHandler{Q: dbq.New(stub)})
 	rec := deleteRequest(t, router, "/tags/00000000-0000-0000-0000-000000000001")
 	assertStatus(t, rec, http.StatusNoContent)
 }
+
+type dummyDeleteRow struct{}
+
+func (dummyDeleteRow) Scan(_ ...any) error { return nil }

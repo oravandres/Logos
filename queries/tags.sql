@@ -14,5 +14,5 @@ INSERT INTO tags (name)
 VALUES ($1)
 RETURNING id, name, created_at;
 
--- name: DeleteTag :exec
-DELETE FROM tags WHERE id = $1;
+-- name: DeleteTag :one
+DELETE FROM tags WHERE id = $1 RETURNING id;

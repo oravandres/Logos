@@ -32,5 +32,5 @@ SET title = $1, text = $2, author_id = $3, image_id = $4,
 WHERE id = $6
 RETURNING id, title, text, author_id, image_id, category_id, created_at, updated_at;
 
--- name: DeleteQuote :exec
-DELETE FROM quotes WHERE id = $1;
+-- name: DeleteQuote :one
+DELETE FROM quotes WHERE id = $1 RETURNING id;

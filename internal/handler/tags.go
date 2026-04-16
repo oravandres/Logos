@@ -100,7 +100,11 @@ func (h *TagHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.Q.DeleteTag(r.Context(), model.UUIDToPgtype(id)); err != nil {
+	if _, err := h.Q.DeleteTag(r.Context(), model.UUIDToPgtype(id)); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			respondError(w, http.StatusNotFound, "tag not found")
+			return
+		}
 		respondError(w, http.StatusInternalServerError, "failed to delete tag")
 		return
 	}
