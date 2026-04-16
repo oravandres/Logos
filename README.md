@@ -35,6 +35,8 @@ queries/            SQL source files (sqlc input)
 | `API_PORT` | `8000` | Bind port |
 | `LOG_LEVEL` | `info` | Log level (debug, info, warn, error) |
 
+Invalid `API_PORT` and `LOG_LEVEL` values now fail fast during startup instead of silently falling back.
+
 ## Development
 
 ```bash
@@ -70,6 +72,13 @@ make verify
 
 Base path: `/api/v1`
 
+Probe endpoints outside the API base path:
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/livez` | Liveness probe |
+| `GET` | `/readyz` | Readiness probe |
+
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/health` | Health check |
@@ -89,3 +98,5 @@ Base path: `/api/v1`
 | `PUT` | `/authors/{id}` | Update author |
 | `DELETE` | `/authors/{id}` | Delete author |
 | `GET` | `/metrics` | Prometheus metrics |
+
+Write endpoints expect `application/json`, reject multiple JSON documents in one request body, and limit payload size to 1 MiB.

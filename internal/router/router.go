@@ -15,7 +15,7 @@ import (
 func New(pool *pgxpool.Pool) *chi.Mux {
 	q := dbq.New(pool)
 
-	health := &handler.HealthHandler{Pool: pool}
+	health := &handler.HealthHandler{Pinger: pool}
 	categories := &handler.CategoryHandler{Q: q}
 	images := &handler.ImageHandler{Q: q}
 	authors := &handler.AuthorHandler{Q: q}
@@ -28,10 +28,12 @@ func New(pool *pgxpool.Pool) *chi.Mux {
 	r.Use(middleware.Logging)
 	r.Use(middleware.Metrics)
 
+	r.Get("/livez", health.Live)
+	r.Get("/readyz", health.Ready)
 	r.Handle("/metrics", promhttp.Handler())
 
 	r.Route("/api/v1", func(r chi.Router) {
-		r.Get("/health", health.Check)
+		r.Get("/health", health.Ready)
 
 		r.Route("/categories", func(r chi.Router) {
 			r.Get("/", categories.List)

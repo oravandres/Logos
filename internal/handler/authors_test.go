@@ -56,7 +56,7 @@ func postJSON(t *testing.T, router http.Handler, path string, body any) *httptes
 	if err != nil {
 		t.Fatalf("marshal body: %v", err)
 	}
-	req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(b))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, path, bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -69,7 +69,7 @@ func putJSON(t *testing.T, router http.Handler, path string, body any) *httptest
 	if err != nil {
 		t.Fatalf("marshal body: %v", err)
 	}
-	req := httptest.NewRequest(http.MethodPut, path, bytes.NewReader(b))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, path, bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -78,7 +78,7 @@ func putJSON(t *testing.T, router http.Handler, path string, body any) *httptest
 
 func getRequest(t *testing.T, router http.Handler, path string) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, path, nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	return rec

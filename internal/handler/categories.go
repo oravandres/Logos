@@ -67,8 +67,8 @@ func (h *CategoryHandler) Get(w http.ResponseWriter, r *http.Request) {
 // Create validates the request body and inserts a new category.
 func (h *CategoryHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var req model.CreateCategoryRequest
-	if err := decode(r, &req); err != nil {
-		respondErrorDetail(w, http.StatusBadRequest, "invalid request body", err.Error())
+	if err := decode(w, r, &req); err != nil {
+		writeDecodeError(w, err)
 		return
 	}
 
@@ -108,8 +108,8 @@ func (h *CategoryHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req model.UpdateCategoryRequest
-	if err := decode(r, &req); err != nil {
-		respondErrorDetail(w, http.StatusBadRequest, "invalid request body", err.Error())
+	if err := decode(w, r, &req); err != nil {
+		writeDecodeError(w, err)
 		return
 	}
 

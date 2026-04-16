@@ -1,24 +1,40 @@
 package handler
 
 import (
+	"context"
+	"log/slog"
 	"net/http"
-
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// HealthHandler exposes a health-check endpoint backed by a database ping.
-type HealthHandler struct {
-	Pool *pgxpool.Pool
+// Pinger checks whether a dependency is reachable.
+type Pinger interface {
+	Ping(context.Context) error
 }
 
-// Check pings the database and reports healthy/unhealthy status.
-func (h *HealthHandler) Check(w http.ResponseWriter, r *http.Request) {
-	if err := h.Pool.Ping(r.Context()); err != nil {
+// HealthHandler exposes liveness and readiness endpoints.
+type HealthHandler struct {
+	Pinger Pinger
+}
+
+// Live reports whether the process is running.
+func (h *HealthHandler) Live(w http.ResponseWriter, _ *http.Request) {
+	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// Ready reports whether the service can safely receive traffic.
+func (h *HealthHandler) Ready(w http.ResponseWriter, r *http.Request) {
+	if h.Pinger == nil {
+		respondJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "unready"})
+		return
+	}
+
+	if err := h.Pinger.Ping(r.Context()); err != nil {
+		slog.Warn("readiness check failed", "error", err)
 		respondJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"status": "unhealthy",
-			"error":  err.Error(),
+			"status": "unready",
 		})
 		return
 	}
-	respondJSON(w, http.StatusOK, map[string]string{"status": "healthy"})
+
+	respondJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 }

@@ -79,8 +79,8 @@ func (h *ImageHandler) Get(w http.ResponseWriter, r *http.Request) {
 // Create validates the request body and inserts a new image.
 func (h *ImageHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var req model.CreateImageRequest
-	if err := decode(r, &req); err != nil {
-		respondErrorDetail(w, http.StatusBadRequest, "invalid request body", err.Error())
+	if err := decode(w, r, &req); err != nil {
+		writeDecodeError(w, err)
 		return
 	}
 
@@ -115,8 +115,8 @@ func (h *ImageHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req model.UpdateImageRequest
-	if err := decode(r, &req); err != nil {
-		respondErrorDetail(w, http.StatusBadRequest, "invalid request body", err.Error())
+	if err := decode(w, r, &req); err != nil {
+		writeDecodeError(w, err)
 		return
 	}
 
