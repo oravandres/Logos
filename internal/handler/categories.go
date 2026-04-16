@@ -162,7 +162,7 @@ func (h *CategoryHandler) Delete(w http.ResponseWriter, r *http.Request) {
 			respondError(w, http.StatusNotFound, "category not found")
 			return
 		}
-		respondErrorDetail(w, http.StatusInternalServerError, "failed to delete category", err.Error())
+		respondError(w, http.StatusInternalServerError, "failed to delete category")
 		return
 	}
 

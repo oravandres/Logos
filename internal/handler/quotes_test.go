@@ -223,10 +223,6 @@ func TestQuoteDelete_Success(t *testing.T) {
 	assertStatus(t, rec, http.StatusNoContent)
 }
 
-type dummyDeleteRow struct{}
-
-func (dummyDeleteRow) Scan(_ ...any) error { return nil }
-
 func TestQuoteCreate_CheckViolation(t *testing.T) {
 	t.Parallel()
 	callCount := 0

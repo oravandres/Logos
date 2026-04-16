@@ -41,6 +41,11 @@ type errRow struct{ err error }
 
 func (r errRow) Scan(_ ...any) error { return r.err }
 
+// dummyDeleteRow simulates a successful DELETE ... RETURNING scan in handler tests.
+type dummyDeleteRow struct{}
+
+func (dummyDeleteRow) Scan(_ ...any) error { return nil }
+
 func authorRouter(h *handler.AuthorHandler) *chi.Mux {
 	r := chi.NewRouter()
 	r.Post("/authors", h.Create)

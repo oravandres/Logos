@@ -111,7 +111,3 @@ func TestTagDelete_Success(t *testing.T) {
 	rec := deleteRequest(t, router, "/tags/00000000-0000-0000-0000-000000000001")
 	assertStatus(t, rec, http.StatusNoContent)
 }
-
-type dummyDeleteRow struct{}
-
-func (dummyDeleteRow) Scan(_ ...any) error { return nil }
