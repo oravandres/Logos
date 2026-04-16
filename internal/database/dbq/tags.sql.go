@@ -35,13 +35,14 @@ func (q *Queries) CreateTag(ctx context.Context, name string) (Tag, error) {
 	return i, err
 }
 
-const deleteTag = `-- name: DeleteTag :exec
-DELETE FROM tags WHERE id = $1
+const deleteTag = `-- name: DeleteTag :one
+DELETE FROM tags WHERE id = $1 RETURNING id
 `
 
-func (q *Queries) DeleteTag(ctx context.Context, id pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, deleteTag, id)
-	return err
+func (q *Queries) DeleteTag(ctx context.Context, id pgtype.UUID) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, deleteTag, id)
+	err := row.Scan(&id)
+	return id, err
 }
 
 const getTag = `-- name: GetTag :one

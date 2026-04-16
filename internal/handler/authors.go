@@ -224,7 +224,11 @@ func (h *AuthorHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.Q.DeleteAuthor(r.Context(), model.UUIDToPgtype(id)); err != nil {
+	if _, err := h.Q.DeleteAuthor(r.Context(), model.UUIDToPgtype(id)); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			respondError(w, http.StatusNotFound, "author not found")
+			return
+		}
 		if isFKViolation(err) {
 			respondError(w, http.StatusConflict, "author has associated quotes and cannot be deleted")
 			return

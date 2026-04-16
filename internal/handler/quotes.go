@@ -215,7 +215,11 @@ func (h *QuoteHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.Q.DeleteQuote(r.Context(), model.UUIDToPgtype(id)); err != nil {
+	if _, err := h.Q.DeleteQuote(r.Context(), model.UUIDToPgtype(id)); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			respondError(w, http.StatusNotFound, "quote not found")
+			return
+		}
 		respondError(w, http.StatusInternalServerError, "failed to delete quote")
 		return
 	}

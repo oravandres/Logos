@@ -49,13 +49,14 @@ func (q *Queries) CreateImage(ctx context.Context, arg CreateImageParams) (Image
 	return i, err
 }
 
-const deleteImage = `-- name: DeleteImage :exec
-DELETE FROM images WHERE id = $1
+const deleteImage = `-- name: DeleteImage :one
+DELETE FROM images WHERE id = $1 RETURNING id
 `
 
-func (q *Queries) DeleteImage(ctx context.Context, id pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, deleteImage, id)
-	return err
+func (q *Queries) DeleteImage(ctx context.Context, id pgtype.UUID) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, deleteImage, id)
+	err := row.Scan(&id)
+	return id, err
 }
 
 const getImage = `-- name: GetImage :one

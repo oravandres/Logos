@@ -68,13 +68,14 @@ func (q *Queries) CreateAuthor(ctx context.Context, arg CreateAuthorParams) (Aut
 	return i, err
 }
 
-const deleteAuthor = `-- name: DeleteAuthor :exec
-DELETE FROM authors WHERE id = $1
+const deleteAuthor = `-- name: DeleteAuthor :one
+DELETE FROM authors WHERE id = $1 RETURNING id
 `
 
-func (q *Queries) DeleteAuthor(ctx context.Context, id pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, deleteAuthor, id)
-	return err
+func (q *Queries) DeleteAuthor(ctx context.Context, id pgtype.UUID) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, deleteAuthor, id)
+	err := row.Scan(&id)
+	return id, err
 }
 
 const getAuthor = `-- name: GetAuthor :one

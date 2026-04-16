@@ -157,7 +157,11 @@ func (h *CategoryHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.Q.DeleteCategory(r.Context(), model.UUIDToPgtype(id)); err != nil {
+	if _, err := h.Q.DeleteCategory(r.Context(), model.UUIDToPgtype(id)); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			respondError(w, http.StatusNotFound, "category not found")
+			return
+		}
 		respondError(w, http.StatusInternalServerError, "failed to delete category")
 		return
 	}

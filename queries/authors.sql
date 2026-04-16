@@ -27,5 +27,5 @@ SET name = $1, bio = $2, born_date = $3, died_date = $4,
 WHERE id = $7
 RETURNING id, name, bio, born_date, died_date, image_id, category_id, created_at, updated_at;
 
--- name: DeleteAuthor :exec
-DELETE FROM authors WHERE id = $1;
+-- name: DeleteAuthor :one
+DELETE FROM authors WHERE id = $1 RETURNING id;

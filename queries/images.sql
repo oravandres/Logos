@@ -22,5 +22,5 @@ SET url = $1, alt_text = $2, category_id = $3, updated_at = NOW()
 WHERE id = $4
 RETURNING id, url, alt_text, category_id, created_at, updated_at;
 
--- name: DeleteImage :exec
-DELETE FROM images WHERE id = $1;
+-- name: DeleteImage :one
+DELETE FROM images WHERE id = $1 RETURNING id;
