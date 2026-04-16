@@ -49,20 +49,16 @@ func (h *QuoteTagHandler) ListTags(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	tx, err := h.Pool.Begin(ctx)
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to begin transaction")
-		return
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	qtx := h.Q.WithTx(tx)
-
-	if !verifyQuoteInTx(ctx, qtx, w, quoteID) {
+	if _, err := h.Q.GetQuote(ctx, model.UUIDToPgtype(quoteID)); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			respondError(w, http.StatusNotFound, "quote not found")
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to verify quote")
 		return
 	}
 
-	tags, err := qtx.ListTagsByQuote(ctx, model.UUIDToPgtype(quoteID))
+	tags, err := h.Q.ListTagsByQuote(ctx, model.UUIDToPgtype(quoteID))
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to list tags for quote")
 		return
