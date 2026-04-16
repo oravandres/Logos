@@ -127,11 +127,3 @@ func (q *Queries) RemoveTagFromQuote(ctx context.Context, arg RemoveTagFromQuote
 	return err
 }
 
-const replaceQuoteTags = `-- name: ReplaceQuoteTags :exec
-DELETE FROM quote_tags WHERE quote_id = $1
-`
-
-func (q *Queries) ReplaceQuoteTags(ctx context.Context, quoteID pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, replaceQuoteTags, quoteID)
-	return err
-}

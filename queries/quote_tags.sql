@@ -27,5 +27,4 @@ ON CONFLICT DO NOTHING;
 DELETE FROM quote_tags
 WHERE quote_id = $1 AND tag_id = $2;
 
--- name: ReplaceQuoteTags :exec
-DELETE FROM quote_tags WHERE quote_id = $1;
+
