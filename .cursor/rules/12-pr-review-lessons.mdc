@@ -1,0 +1,100 @@
+---
+description: Concrete patterns from PR review feedback — avoid repeating these mistakes
+globs:
+  - "**/*.go"
+  - "**/*.sql"
+  - "**/migrations/*"
+  - ".gitignore"
+  - "**/*.yaml"
+  - "**/Dockerfile"
+  - "**/*.sh"
+alwaysApply: true
+---
+
+Patterns that caused real PR review rounds. Follow these to get PRs right the first time.
+
+## .gitignore
+
+- Anchor binary names with a leading slash (`/logos`) so they don't match directories like `cmd/logos/`.
+
+## Server lifecycle
+
+- When `ListenAndServe` returns, only treat `http.ErrServerClosed` as the expected shutdown case. Any other error (bind failure, invalid address) must propagate as a fatal error with non-zero exit.
+- Do not create timeout contexts before slow operations (like migrations) that don't consume the context. The deadline starts ticking immediately; create the context right before the call that uses it.
+
+## DSN and URL handling
+
+- `pgxpool.ParseConfig` accepts both `postgres://` and `postgresql://` schemes. Any code that rewrites or manipulates DSN schemes must handle both.
+
+## Database error classification
+
+- Inspect `pgconn.PgError.Code` to classify database errors at the handler boundary. Do not map all insert/update errors to a single HTTP status code.
+  - `23505` (unique_violation) → 409 Conflict
+  - `23503` (foreign_key_violation) → 422 Unprocessable Entity
+  - `23514` (check_violation) → 422 Unprocessable Entity
+  - Everything else → 500 Internal Server Error
+- When a foreign key violation is caused by client-supplied input (e.g. an invalid `category_id`), it is a client error, not a server error.
+
+## Cross-table invariants and triggers
+
+- Enforce important cross-table invariants in the database (triggers, check constraints), not only in application code. Application-level pre-checks have TOCTOU races.
+- When a trigger reads a referenced row to validate an invariant, lock the row (`FOR SHARE`) so the check serializes with concurrent updates to that row.
+- Guard invariants bidirectionally. If entity A requires `categories.type = 'X'`, also add a trigger on `categories` that prevents changing the type while entity A references it.
+- Handler-level pre-checks are still valuable for fast UX feedback, but they are a convenience layer — the database trigger is the safety net.
+
+## Migrations
+
+- Down migrations must only drop objects created by the corresponding up migration. Never drop shared or database-global objects (like extensions) that may be used by other features or may have existed before the migration.
+- When adding database extensions (`CREATE EXTENSION IF NOT EXISTS ...`), understand that extensions are database-global. Do not assume ownership of them in rollback.
+
+## Indexing and query patterns
+
+- Choose index types deliberately based on the actual query pattern:
+  - B-tree indexes work for equality, range, and prefix (`LIKE 'foo%'`) queries.
+  - B-tree indexes **cannot** accelerate `ILIKE '%substring%'` searches. Use a `pg_trgm` GIN index for substring/trigram matching.
+- Offset-paginated queries must have a fully deterministic `ORDER BY`. If the primary sort column can have ties (e.g. `created_at`), add a tiebreaker column (e.g. `ORDER BY created_at DESC, id DESC`).
+
+## Security defaults
+
+- Security-sensitive configuration (CORS origins, auth tokens, etc.) must default to the most restrictive state. CORS should have no allowed origins by default; the middleware should only be installed when an explicit allowlist is configured.
+- Fail closed, not open. If an env var is unset, the behavior should be equivalent to "deny all", not "allow all".
+
+## Configuration parsing
+
+- When parsing comma-separated environment variables, trim whitespace from each element and drop empty strings. `strings.Split("a, b", ",")` produces `["a", " b"]` — the leading space will silently break matchers (CORS, ACLs, etc.).
+
+## Sub-resource endpoints
+
+- Sub-resource endpoints (e.g. `GET /quotes/{id}/tags`, `POST /quotes/{id}/tags`) must verify the parent resource exists before operating on children. Return `404` when the parent is missing — do not let a join query silently return `200 []` for a nonexistent parent.
+- When a sub-resource write fails with a FK violation, distinguish whether the parent or child is missing. If the parent is in the URL path, validate it first and return `404`; reserve `422` for a bad child reference in the request body.
+- The parent-existence check and the child operation must be atomic. Use a transaction that locks the parent row (`SELECT ... FOR KEY SHARE`) so a concurrent delete cannot slip between the check and the child insert/read. Without this, the check-then-act pattern has a TOCTOU race.
+
+## Input validation
+
+- Validate cross-field constraints, not just individual fields. When a request contains related fields (e.g. `born_date` and `died_date`), validate their relationship (e.g. `died_date >= born_date`).
+- Validate semantic correctness of foreign key references before insert when the schema requires it (e.g. check that a `category_id` points to a category with the correct `type`).
+- Validate field length limits in the handler when the database column has a `VARCHAR(N)` constraint. Letting an oversized value reach Postgres produces a generic 500 error instead of a clear 400.
+
+## Kubernetes manifests
+
+- Never commit plaintext Kubernetes `Secret` manifests to a Git repository. Use `SealedSecret` (or an equivalent encrypted-at-rest mechanism) and store sealed values in the dedicated secrets repo. Plaintext secrets in Git break the sealed-secrets model and make rotation/audit much harder.
+- Pin stateful workload images (databases, message queues, caches) to a specific patch version or digest. Floating tags like `postgres:16-alpine` can pull a newer build on a reschedule, turning routine operations into accidental upgrades with undefined rollback behavior.
+- Pin application images to an immutable tag (git SHA, semver) rather than `:latest`. Use `imagePullPolicy: IfNotPresent` instead of `Never` so the kubelet behavior is deterministic and rollbacks work correctly in GitOps.
+- When the cluster mixes architectures (e.g. Raspberry Pi arm64), publish **multi-arch** images (OCI index with `linux/arm64` and any other node platforms). A single-platform GHCR tag breaks rollouts with `no match for platform in manifest`. Cross-compile Go with `GOOS`/`GOARCH` from BuildKit `TARGET*` args and buildx `platforms: linux/amd64,linux/arm64` (plus QEMU on CI when needed).
+- Do not expose internal operational endpoints (e.g. `/metrics`, `/debug/pprof`) through the public ingress. Let Prometheus scrape via `ServiceMonitor` on the ClusterIP service directly.
+- When deploying a workload to a new namespace, ensure it inherits the cluster's baseline safety controls: `ResourceQuota`, `LimitRange`, `pod-security.kubernetes.io/enforce` label, and Kyverno/OPA policies. Otherwise the namespace silently opts out of all guardrails.
+- Workloads in `pod-security.kubernetes.io/enforce: restricted` namespaces must declare pod- and container-level `securityContext` compatible with the profile (`runAsNonRoot`, `seccompProfile.type: RuntimeDefault`, `allowPrivilegeEscalation: false`, `capabilities.drop: ["ALL"]`), and `runAsUser`/`runAsGroup` must match the image’s non-root user (e.g. distroless `:nonroot` uses 65532; official `postgres` Alpine uses uid/gid 70).
+- Build scripts for local k3s import should tag images with an immutable identifier (e.g. `$(git rev-parse --short HEAD)`) and print the tag so the operator knows which version to put in the manifest.
+
+## Secrets repository CI (gitleaks, GitHub Actions)
+
+- **SealedSecret** ciphertext in YAML is base64; visible prefixes are often **`Ag...`** but **not always `AgA...`**. Gitleaks allowlists that only match `AgA` will false-positive on real sealed blobs or miss allowlisting the wrong shape. Prefer a pattern that matches typical kubeseal ciphertext (e.g. long **`Ag`**-prefixed base64) or carefully scoped path allowlists—without exempting real cleartext secrets.
+- **`gitleaks/gitleaks-action` on `pull_request`** often needs explicit workflow **`permissions: contents: read`** and **`pull-requests: read`** so `GITHUB_TOKEN` can read PR commit lists (otherwise **403 Resource not accessible by integration** before gitleaks runs).
+- Use **`actions/checkout` with `fetch-depth: 0`** when a tool compares git history for PR ranges; the default shallow clone can make base revisions **unknown** and fail the job before scans run.
+
+## Testing
+
+- Every handler route (`List`, `Get`, `Create`, `Update`, `Delete`) must have at least one test. Do not skip routes that seem trivial.
+- New validation branches, error-mapping logic, and input-parsing code must have table-driven tests covering both happy and unhappy paths.
+- Test the DB error classification paths (FK violations, check violations, unique violations) using a stub DBTX that returns the appropriate `pgconn.PgError`.
+- Test filter/query-parameter parsing in List handlers (valid filters, invalid UUID filters).

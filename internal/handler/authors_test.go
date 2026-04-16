@@ -41,6 +41,11 @@ type errRow struct{ err error }
 
 func (r errRow) Scan(_ ...any) error { return r.err }
 
+// dummyDeleteRow simulates a successful DELETE ... RETURNING scan in handler tests.
+type dummyDeleteRow struct{}
+
+func (dummyDeleteRow) Scan(_ ...any) error { return nil }
+
 func authorRouter(h *handler.AuthorHandler) *chi.Mux {
 	r := chi.NewRouter()
 	r.Post("/authors", h.Create)
@@ -49,7 +54,6 @@ func authorRouter(h *handler.AuthorHandler) *chi.Mux {
 	return r
 }
 
-//nolint:unparam // path varies once quotes/tags handler tests are added
 func postJSON(t *testing.T, router http.Handler, path string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 	b, err := json.Marshal(body)
@@ -79,6 +83,14 @@ func putJSON(t *testing.T, router http.Handler, path string, body any) *httptest
 func getRequest(t *testing.T, router http.Handler, path string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, path, nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	return rec
+}
+
+func deleteRequest(t *testing.T, router http.Handler, path string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodDelete, path, nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	return rec
@@ -250,7 +262,7 @@ func TestAuthorCreate_CategoryTypeMismatch(t *testing.T) {
 		"category_id": "00000000-0000-0000-0000-000000000001",
 	})
 	assertStatus(t, rec, http.StatusUnprocessableEntity)
-	assertErrorMsg(t, rec, "category type must be 'author'")
+	assertErrorMsg(t, rec, `category type must be "author"`)
 }
 
 func TestAuthorCreate_CheckViolation(t *testing.T) {
@@ -276,7 +288,7 @@ func TestAuthorCreate_CheckViolation(t *testing.T) {
 		"category_id": "00000000-0000-0000-0000-000000000001",
 	})
 	assertStatus(t, rec, http.StatusUnprocessableEntity)
-	assertErrorMsg(t, rec, "category type must be 'author'")
+	assertErrorMsg(t, rec, `category type must be "author"`)
 }
 
 // scanCategoryRow populates a Category row on Scan, matching the GetCategory column order.

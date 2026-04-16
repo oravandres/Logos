@@ -34,6 +34,7 @@ queries/            SQL source files (sqlc input)
 | `API_HOST` | `0.0.0.0` | Bind address |
 | `API_PORT` | `8000` | Bind port |
 | `LOG_LEVEL` | `info` | Log level (debug, info, warn, error) |
+| `CORS_ALLOWED_ORIGINS` | *(none — CORS disabled)* | Comma-separated list of allowed CORS origins |
 
 Invalid `API_PORT` and `LOG_LEVEL` values now fail fast during startup instead of silently falling back.
 
@@ -61,11 +62,22 @@ Run before pushing:
 make verify
 ```
 
+Install the pre-push git hook to run lint + tests automatically before every push:
+
+```bash
+make install-hooks
+```
+
 ## Build & Deploy
 
 ```bash
 # Build container image and import into k3s
 ./build-and-import.sh
+
+# Kubernetes manifests live in the MiMi repo (manifests/logos/).
+# Argo CD auto-syncs once manifests are pushed to MiMi main.
+# After importing the image, restart the deployment:
+kubectl rollout restart deployment logos-api -n logos
 ```
 
 ## API Endpoints
@@ -97,6 +109,18 @@ Probe endpoints outside the API base path:
 | `GET` | `/authors/{id}` | Get author |
 | `PUT` | `/authors/{id}` | Update author |
 | `DELETE` | `/authors/{id}` | Delete author |
+| `GET` | `/quotes` | List quotes (?author_id=&category_id=&title=) |
+| `POST` | `/quotes` | Create quote |
+| `GET` | `/quotes/{id}` | Get quote |
+| `PUT` | `/quotes/{id}` | Update quote |
+| `DELETE` | `/quotes/{id}` | Delete quote |
+| `GET` | `/quotes/{id}/tags` | List tags for a quote |
+| `POST` | `/quotes/{id}/tags` | Add tag to quote (body: `{tag_id}`) |
+| `DELETE` | `/quotes/{id}/tags/{tagID}` | Remove tag from quote |
+| `GET` | `/tags` | List tags |
+| `POST` | `/tags` | Create tag |
+| `GET` | `/tags/{id}` | Get tag |
+| `DELETE` | `/tags/{id}` | Delete tag (cascades associations) |
 | `GET` | `/metrics` | Prometheus metrics |
 
 Write endpoints expect `application/json`, reject multiple JSON documents in one request body, and limit payload size to 1 MiB.

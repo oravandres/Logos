@@ -46,13 +46,14 @@ func (q *Queries) CreateCategory(ctx context.Context, arg CreateCategoryParams) 
 	return i, err
 }
 
-const deleteCategory = `-- name: DeleteCategory :exec
-DELETE FROM categories WHERE id = $1
+const deleteCategory = `-- name: DeleteCategory :one
+DELETE FROM categories WHERE id = $1 RETURNING id
 `
 
-func (q *Queries) DeleteCategory(ctx context.Context, id pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, deleteCategory, id)
-	return err
+func (q *Queries) DeleteCategory(ctx context.Context, id pgtype.UUID) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, deleteCategory, id)
+	err := row.Scan(&id)
+	return id, err
 }
 
 const getCategory = `-- name: GetCategory :one

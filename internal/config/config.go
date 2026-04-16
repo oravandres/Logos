@@ -5,14 +5,17 @@ import (
 	"log/slog"
 	"os"
 	"strconv"
+	"strings"
 )
 
 // Config holds application configuration sourced from environment variables.
 type Config struct {
-	DatabaseURL string
-	APIHost     string
-	APIPort     int
-	LogLevel    slog.Level
+	DatabaseURL        string
+	APIHost            string
+	APIPort            int
+	LogLevel           slog.Level
+	MigrationsPath     string
+	CORSAllowedOrigins []string
 }
 
 // Load reads environment variables and returns a populated Config with defaults.
@@ -21,17 +24,18 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-
 	logLevel, err := parseLogLevel(envOrDefault("LOG_LEVEL", "info"))
 	if err != nil {
 		return Config{}, err
 	}
 
 	return Config{
-		DatabaseURL: envOrDefault("DATABASE_URL", "postgres://logos:logos@localhost:5432/logos?sslmode=disable"),
-		APIHost:     envOrDefault("API_HOST", "0.0.0.0"),
-		APIPort:     port,
-		LogLevel:    logLevel,
+		DatabaseURL:        envOrDefault("DATABASE_URL", "postgres://logos:logos@localhost:5432/logos?sslmode=disable"),
+		APIHost:            envOrDefault("API_HOST", "0.0.0.0"),
+		APIPort:            port,
+		LogLevel:           logLevel,
+		MigrationsPath:     envOrDefault("MIGRATIONS_PATH", ""),
+		CORSAllowedOrigins: envSlice("CORS_ALLOWED_ORIGINS", nil),
 	}, nil
 }
 
@@ -45,6 +49,22 @@ func envOrDefault(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func envSlice(key string, fallback []string) []string {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func envIntInRangeOrDefault(key string, fallback, min, max int) (int, error) {

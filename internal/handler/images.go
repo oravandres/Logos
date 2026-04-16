@@ -155,7 +155,11 @@ func (h *ImageHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.Q.DeleteImage(r.Context(), model.UUIDToPgtype(id)); err != nil {
+	if _, err := h.Q.DeleteImage(r.Context(), model.UUIDToPgtype(id)); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			respondError(w, http.StatusNotFound, "image not found")
+			return
+		}
 		respondErrorDetail(w, http.StatusInternalServerError, "failed to delete image", err.Error())
 		return
 	}
