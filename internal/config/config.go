@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -12,21 +13,30 @@ type Config struct {
 	DatabaseURL        string
 	APIHost            string
 	APIPort            int
-	LogLevel           string
+	LogLevel           slog.Level
 	MigrationsPath     string
 	CORSAllowedOrigins []string
 }
 
 // Load reads environment variables and returns a populated Config with defaults.
-func Load() Config {
+func Load() (Config, error) {
+	port, err := envIntInRangeOrDefault("API_PORT", 8000, 0, 65535)
+	if err != nil {
+		return Config{}, err
+	}
+	logLevel, err := parseLogLevel(envOrDefault("LOG_LEVEL", "info"))
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
 		DatabaseURL:        envOrDefault("DATABASE_URL", "postgres://logos:logos@localhost:5432/logos?sslmode=disable"),
 		APIHost:            envOrDefault("API_HOST", "0.0.0.0"),
-		APIPort:            envIntOrDefault("API_PORT", 8000),
-		LogLevel:           envOrDefault("LOG_LEVEL", "info"),
+		APIPort:            port,
+		LogLevel:           logLevel,
 		MigrationsPath:     envOrDefault("MIGRATIONS_PATH", ""),
 		CORSAllowedOrigins: envSlice("CORS_ALLOWED_ORIGINS", nil),
-	}
+	}, nil
 }
 
 // ListenAddr returns the host:port string the server should bind to.
@@ -57,14 +67,33 @@ func envSlice(key string, fallback []string) []string {
 	return out
 }
 
-func envIntOrDefault(key string, fallback int) int {
+func envIntInRangeOrDefault(key string, fallback, min, max int) (int, error) {
 	v := os.Getenv(key)
 	if v == "" {
-		return fallback
+		return fallback, nil
 	}
+
 	n, err := strconv.Atoi(v)
 	if err != nil {
-		return fallback
+		return 0, fmt.Errorf("%s must be an integer: %w", key, err)
 	}
-	return n
+	if n < min || n > max {
+		return 0, fmt.Errorf("%s must be between %d and %d", key, min, max)
+	}
+	return n, nil
+}
+
+func parseLogLevel(v string) (slog.Level, error) {
+	switch v {
+	case "debug":
+		return slog.LevelDebug, nil
+	case "info":
+		return slog.LevelInfo, nil
+	case "warn":
+		return slog.LevelWarn, nil
+	case "error":
+		return slog.LevelError, nil
+	default:
+		return 0, fmt.Errorf("LOG_LEVEL must be one of: debug, info, warn, error")
+	}
 }

@@ -97,8 +97,8 @@ func (h *QuoteHandler) Get(w http.ResponseWriter, r *http.Request) {
 // Create validates the request body and inserts a new quote.
 func (h *QuoteHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var req model.CreateQuoteRequest
-	if err := decode(r, &req); err != nil {
-		respondErrorDetail(w, http.StatusBadRequest, "invalid request body", err.Error())
+	if err := decode(w, r, &req); err != nil {
+		writeDecodeError(w, err)
 		return
 	}
 
@@ -154,8 +154,8 @@ func (h *QuoteHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req model.UpdateQuoteRequest
-	if err := decode(r, &req); err != nil {
-		respondErrorDetail(w, http.StatusBadRequest, "invalid request body", err.Error())
+	if err := decode(w, r, &req); err != nil {
+		writeDecodeError(w, err)
 		return
 	}
 

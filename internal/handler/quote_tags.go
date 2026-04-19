@@ -85,8 +85,8 @@ func (h *QuoteTagHandler) AddTag(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body addTagBody
-	if err := decode(r, &body); err != nil {
-		respondErrorDetail(w, http.StatusBadRequest, "invalid request body", err.Error())
+	if err := decode(w, r, &body); err != nil {
+		writeDecodeError(w, err)
 		return
 	}
 

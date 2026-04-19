@@ -36,6 +36,8 @@ queries/            SQL source files (sqlc input)
 | `LOG_LEVEL` | `info` | Log level (debug, info, warn, error) |
 | `CORS_ALLOWED_ORIGINS` | *(none — CORS disabled)* | Comma-separated list of allowed CORS origins |
 
+Invalid `API_PORT` and `LOG_LEVEL` values now fail fast during startup instead of silently falling back.
+
 ## Development
 
 ```bash
@@ -82,9 +84,16 @@ kubectl rollout restart deployment logos-api -n logos
 
 Base path: `/api/v1`
 
+Probe endpoints outside the API base path:
+
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/health` | Health check |
+| `GET` | `/livez` | Liveness — process-level only, never touches the DB. Body: `{"status":"ok"}`. |
+| `GET` | `/readyz` | Readiness — pings the database. Body: `{"status":"ready"}` (200) or `{"status":"unready"}` (503). |
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/health` | Legacy compatibility readiness check. Same dependency check as `/readyz`, but emits the original body shape: `{"status":"healthy"}` (200) or `{"status":"unhealthy"}` (503). New consumers should use `/readyz`. |
 | `GET` | `/categories` | List categories (?type=image\|quote\|author) |
 | `POST` | `/categories` | Create category |
 | `GET` | `/categories/{id}` | Get category |
@@ -113,3 +122,5 @@ Base path: `/api/v1`
 | `GET` | `/tags/{id}` | Get tag |
 | `DELETE` | `/tags/{id}` | Delete tag (cascades associations) |
 | `GET` | `/metrics` | Prometheus metrics |
+
+Write endpoints expect `application/json`, reject multiple JSON documents in one request body, and limit payload size to 1 MiB.

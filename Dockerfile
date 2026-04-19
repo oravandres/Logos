@@ -14,7 +14,6 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o /logos ./cmd
 FROM gcr.io/distroless/static-debian12:nonroot
 
 COPY --from=builder /logos /logos
-COPY migrations/ /migrations/
 
 EXPOSE 8000
 

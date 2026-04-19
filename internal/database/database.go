@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"strconv"
 	"strings"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -42,27 +43,49 @@ func RunMigrations(databaseURL string, migrationsFS fs.FS) error {
 		return fmt.Errorf("create migration source: %w", err)
 	}
 
-	// golang-migrate pgx/v5 driver registers under the "pgx5" scheme.
-	// pgxpool accepts both "postgres://" and "postgresql://" so normalize both.
-	migrationURL := databaseURL
-	switch {
-	case strings.HasPrefix(migrationURL, "postgres://"):
-		migrationURL = "pgx5://" + strings.TrimPrefix(migrationURL, "postgres://")
-	case strings.HasPrefix(migrationURL, "postgresql://"):
-		migrationURL = "pgx5://" + strings.TrimPrefix(migrationURL, "postgresql://")
-	}
-
-	m, err := migrate.NewWithSourceInstance("iofs", source, migrationURL)
+	m, err := migrate.NewWithSourceInstance("iofs", source, normalizeMigrationURL(databaseURL))
 	if err != nil {
 		return fmt.Errorf("create migrator: %w", err)
 	}
+	defer func() {
+		sourceErr, databaseErr := m.Close()
+		if closeErr := errors.Join(sourceErr, databaseErr); closeErr != nil {
+			slog.Warn("close migrator", "error", closeErr)
+		}
+	}()
 
 	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 		return fmt.Errorf("run migrations: %w", err)
 	}
 
-	version, dirty, _ := m.Version()
+	version := "unknown"
+	dirty := false
+
+	currentVersion, currentDirty, err := m.Version()
+	switch {
+	case err == nil:
+		version = strconv.FormatUint(uint64(currentVersion), 10)
+		dirty = currentDirty
+	case errors.Is(err, migrate.ErrNilVersion):
+		version = "none"
+	default:
+		slog.Warn("read migration version", "error", err)
+	}
+
 	slog.Info("migrations complete", "version", version, "dirty", dirty)
 
 	return nil
+}
+
+func normalizeMigrationURL(databaseURL string) string {
+	// golang-migrate pgx/v5 driver registers under the "pgx5" scheme.
+	// pgxpool accepts both "postgres://" and "postgresql://" so normalize both.
+	switch {
+	case strings.HasPrefix(databaseURL, "postgres://"):
+		return "pgx5://" + strings.TrimPrefix(databaseURL, "postgres://")
+	case strings.HasPrefix(databaseURL, "postgresql://"):
+		return "pgx5://" + strings.TrimPrefix(databaseURL, "postgresql://")
+	default:
+		return databaseURL
+	}
 }

@@ -65,8 +65,8 @@ func (h *TagHandler) Get(w http.ResponseWriter, r *http.Request) {
 // Create validates the request body and inserts a new tag.
 func (h *TagHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var req model.CreateTagRequest
-	if err := decode(r, &req); err != nil {
-		respondErrorDetail(w, http.StatusBadRequest, "invalid request body", err.Error())
+	if err := decode(w, r, &req); err != nil {
+		writeDecodeError(w, err)
 		return
 	}
 
