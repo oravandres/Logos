@@ -16,16 +16,30 @@ SELECT count(*) FROM quotes
 WHERE (author_id = $1 OR $1 IS NULL)
   AND (category_id = $2 OR $2 IS NULL)
   AND (title ILIKE '%' || $3 || '%' OR $3 IS NULL)
+  AND (
+    $4::uuid IS NULL
+    OR EXISTS (
+      SELECT 1 FROM quote_tags qt
+      WHERE qt.quote_id = quotes.id
+        AND qt.tag_id = $4
+    )
+  )
 `
 
 type CountQuotesParams struct {
 	FilterAuthorID   pgtype.UUID `json:"filter_author_id"`
 	FilterCategoryID pgtype.UUID `json:"filter_category_id"`
 	SearchTitle      pgtype.Text `json:"search_title"`
+	FilterTagID      pgtype.UUID `json:"filter_tag_id"`
 }
 
 func (q *Queries) CountQuotes(ctx context.Context, arg CountQuotesParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countQuotes, arg.FilterAuthorID, arg.FilterCategoryID, arg.SearchTitle)
+	row := q.db.QueryRow(ctx, countQuotes,
+		arg.FilterAuthorID,
+		arg.FilterCategoryID,
+		arg.SearchTitle,
+		arg.FilterTagID,
+	)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -114,6 +128,14 @@ FROM quotes
 WHERE (author_id = $3 OR $3 IS NULL)
   AND (category_id = $4 OR $4 IS NULL)
   AND (title ILIKE '%' || $5 || '%' OR $5 IS NULL)
+  AND (
+    $6::uuid IS NULL
+    OR EXISTS (
+      SELECT 1 FROM quote_tags qt
+      WHERE qt.quote_id = quotes.id
+        AND qt.tag_id = $6
+    )
+  )
 ORDER BY created_at DESC, id DESC
 LIMIT $1 OFFSET $2
 `
@@ -124,6 +146,7 @@ type ListQuotesParams struct {
 	FilterAuthorID   pgtype.UUID `json:"filter_author_id"`
 	FilterCategoryID pgtype.UUID `json:"filter_category_id"`
 	SearchTitle      pgtype.Text `json:"search_title"`
+	FilterTagID      pgtype.UUID `json:"filter_tag_id"`
 }
 
 func (q *Queries) ListQuotes(ctx context.Context, arg ListQuotesParams) ([]Quote, error) {
@@ -133,6 +156,7 @@ func (q *Queries) ListQuotes(ctx context.Context, arg ListQuotesParams) ([]Quote
 		arg.FilterAuthorID,
 		arg.FilterCategoryID,
 		arg.SearchTitle,
+		arg.FilterTagID,
 	)
 	if err != nil {
 		return nil, err

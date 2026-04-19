@@ -4,6 +4,14 @@ FROM quotes
 WHERE (author_id = sqlc.narg('filter_author_id') OR sqlc.narg('filter_author_id') IS NULL)
   AND (category_id = sqlc.narg('filter_category_id') OR sqlc.narg('filter_category_id') IS NULL)
   AND (title ILIKE '%' || sqlc.narg('search_title') || '%' OR sqlc.narg('search_title') IS NULL)
+  AND (
+    sqlc.narg('filter_tag_id')::uuid IS NULL
+    OR EXISTS (
+      SELECT 1 FROM quote_tags qt
+      WHERE qt.quote_id = quotes.id
+        AND qt.tag_id = sqlc.narg('filter_tag_id')
+    )
+  )
 ORDER BY created_at DESC, id DESC
 LIMIT $1 OFFSET $2;
 
@@ -11,7 +19,15 @@ LIMIT $1 OFFSET $2;
 SELECT count(*) FROM quotes
 WHERE (author_id = sqlc.narg('filter_author_id') OR sqlc.narg('filter_author_id') IS NULL)
   AND (category_id = sqlc.narg('filter_category_id') OR sqlc.narg('filter_category_id') IS NULL)
-  AND (title ILIKE '%' || sqlc.narg('search_title') || '%' OR sqlc.narg('search_title') IS NULL);
+  AND (title ILIKE '%' || sqlc.narg('search_title') || '%' OR sqlc.narg('search_title') IS NULL)
+  AND (
+    sqlc.narg('filter_tag_id')::uuid IS NULL
+    OR EXISTS (
+      SELECT 1 FROM quote_tags qt
+      WHERE qt.quote_id = quotes.id
+        AND qt.tag_id = sqlc.narg('filter_tag_id')
+    )
+  );
 
 -- name: GetQuote :one
 SELECT id, title, text, author_id, image_id, category_id, created_at, updated_at

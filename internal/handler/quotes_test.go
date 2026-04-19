@@ -191,6 +191,12 @@ func TestQuoteList_InvalidFilters(t *testing.T) {
 			wantCode:  http.StatusBadRequest,
 			wantError: "invalid category_id",
 		},
+		{
+			name:      "invalid tag_id",
+			query:     "?tag_id=not-a-uuid",
+			wantCode:  http.StatusBadRequest,
+			wantError: "invalid tag_id",
+		},
 	}
 
 	for _, tt := range tests {
