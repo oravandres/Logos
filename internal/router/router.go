@@ -48,7 +48,7 @@ func New(pool *pgxpool.Pool, cfg config.Config) *chi.Mux {
 	r.Handle("/metrics", promhttp.Handler())
 
 	r.Route("/api/v1", func(r chi.Router) {
-		r.Get("/health", health.Ready)
+		r.Get("/health", health.Compat)
 
 		r.Route("/categories", func(r chi.Router) {
 			r.Get("/", categories.List)

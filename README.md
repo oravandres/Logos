@@ -88,12 +88,12 @@ Probe endpoints outside the API base path:
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/livez` | Liveness probe |
-| `GET` | `/readyz` | Readiness probe |
+| `GET` | `/livez` | Liveness — process-level only, never touches the DB. Body: `{"status":"ok"}`. |
+| `GET` | `/readyz` | Readiness — pings the database. Body: `{"status":"ready"}` (200) or `{"status":"unready"}` (503). |
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/health` | Health check |
+| `GET` | `/health` | Legacy compatibility readiness check. Same dependency check as `/readyz`, but emits the original body shape: `{"status":"healthy"}` (200) or `{"status":"unhealthy"}` (503). New consumers should use `/readyz`. |
 | `GET` | `/categories` | List categories (?type=image\|quote\|author) |
 | `POST` | `/categories` | Create category |
 | `GET` | `/categories/{id}` | Get category |
