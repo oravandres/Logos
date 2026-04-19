@@ -15,7 +15,7 @@ type QuoteHandler struct {
 	Q *dbq.Queries
 }
 
-// List returns a paginated list of quotes, optionally filtered by author, category, or title.
+// List returns a paginated list of quotes, optionally filtered by author, category, title, or tag.
 func (h *QuoteHandler) List(w http.ResponseWriter, r *http.Request) {
 	limit, offset := parsePagination(r)
 
@@ -39,12 +39,23 @@ func (h *QuoteHandler) List(w http.ResponseWriter, r *http.Request) {
 		filterCategoryID = &id
 	}
 
+	var filterTagID model.OptionalUUID
+	if raw := r.URL.Query().Get("tag_id"); raw != "" {
+		id, err := uuid.Parse(raw)
+		if err != nil {
+			respondError(w, http.StatusBadRequest, "invalid tag_id")
+			return
+		}
+		filterTagID = &id
+	}
+
 	searchTitle := model.StringToPgtext(r.URL.Query().Get("title"))
 
 	countParams := dbq.CountQuotesParams{
 		FilterAuthorID:   model.OptionalUUIDToPgtype(filterAuthorID),
 		FilterCategoryID: model.OptionalUUIDToPgtype(filterCategoryID),
 		SearchTitle:      searchTitle,
+		FilterTagID:      model.OptionalUUIDToPgtype(filterTagID),
 	}
 
 	quotes, err := h.Q.ListQuotes(r.Context(), dbq.ListQuotesParams{
@@ -53,6 +64,7 @@ func (h *QuoteHandler) List(w http.ResponseWriter, r *http.Request) {
 		FilterAuthorID:   countParams.FilterAuthorID,
 		FilterCategoryID: countParams.FilterCategoryID,
 		SearchTitle:      countParams.SearchTitle,
+		FilterTagID:      countParams.FilterTagID,
 	})
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to list quotes")

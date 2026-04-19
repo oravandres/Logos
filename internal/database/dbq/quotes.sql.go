@@ -16,16 +16,33 @@ SELECT count(*) FROM quotes
 WHERE (author_id = $1 OR $1 IS NULL)
   AND (category_id = $2 OR $2 IS NULL)
   AND (title ILIKE '%' || $3 || '%' OR $3 IS NULL)
+  AND (
+    $4::uuid IS NULL
+    OR id IN (
+      SELECT qt.quote_id FROM quote_tags qt
+      WHERE qt.tag_id = $4
+    )
+  )
 `
 
 type CountQuotesParams struct {
 	FilterAuthorID   pgtype.UUID `json:"filter_author_id"`
 	FilterCategoryID pgtype.UUID `json:"filter_category_id"`
 	SearchTitle      pgtype.Text `json:"search_title"`
+	FilterTagID      pgtype.UUID `json:"filter_tag_id"`
 }
 
+// Mirrors the IN-subquery shape used in ListQuotes so the same hashed semi-join
+// plan fires. Keeping the two clauses byte-identical (modulo SELECT vs count)
+// prevents pagination totals from drifting from the returned items if the
+// filter shape ever changes again.
 func (q *Queries) CountQuotes(ctx context.Context, arg CountQuotesParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countQuotes, arg.FilterAuthorID, arg.FilterCategoryID, arg.SearchTitle)
+	row := q.db.QueryRow(ctx, countQuotes,
+		arg.FilterAuthorID,
+		arg.FilterCategoryID,
+		arg.SearchTitle,
+		arg.FilterTagID,
+	)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -114,6 +131,13 @@ FROM quotes
 WHERE (author_id = $3 OR $3 IS NULL)
   AND (category_id = $4 OR $4 IS NULL)
   AND (title ILIKE '%' || $5 || '%' OR $5 IS NULL)
+  AND (
+    $6::uuid IS NULL
+    OR id IN (
+      SELECT qt.quote_id FROM quote_tags qt
+      WHERE qt.tag_id = $6
+    )
+  )
 ORDER BY created_at DESC, id DESC
 LIMIT $1 OFFSET $2
 `
@@ -124,8 +148,15 @@ type ListQuotesParams struct {
 	FilterAuthorID   pgtype.UUID `json:"filter_author_id"`
 	FilterCategoryID pgtype.UUID `json:"filter_category_id"`
 	SearchTitle      pgtype.Text `json:"search_title"`
+	FilterTagID      pgtype.UUID `json:"filter_tag_id"`
 }
 
+// The tag filter is expressed as `id IN (SELECT ...)` rather than a correlated
+// EXISTS so PostgreSQL can hash the inner result once and run it as a hashed
+// semi-join driven from ix_quote_tags_tag_id. With a correlated EXISTS the
+// planner re-probes quote_tags_pkey per outer row (~100K loops, ~300K buffers
+// on a 100K-quote dataset for a sparse tag); the IN form drops to ~1.2K
+// buffers regardless of tag selectivity. See PR #14 EXPLAIN ANALYZE evidence.
 func (q *Queries) ListQuotes(ctx context.Context, arg ListQuotesParams) ([]Quote, error) {
 	rows, err := q.db.Query(ctx, listQuotes,
 		arg.Limit,
@@ -133,6 +164,7 @@ func (q *Queries) ListQuotes(ctx context.Context, arg ListQuotesParams) ([]Quote
 		arg.FilterAuthorID,
 		arg.FilterCategoryID,
 		arg.SearchTitle,
+		arg.FilterTagID,
 	)
 	if err != nil {
 		return nil, err

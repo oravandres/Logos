@@ -126,4 +126,3 @@ func (q *Queries) RemoveTagFromQuote(ctx context.Context, arg RemoveTagFromQuote
 	_, err := q.db.Exec(ctx, removeTagFromQuote, arg.QuoteID, arg.TagID)
 	return err
 }
-
