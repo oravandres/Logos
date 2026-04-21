@@ -51,11 +51,20 @@ func (h *QuoteHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	searchTitle := model.StringToPgtext(r.URL.Query().Get("title"))
 
+	// ?q= is the full-text search facet (migration 000007, queries/quotes.sql).
+	// Empty string is treated as absent (consistent with ?title handling): both
+	// "no filter" and "empty filter" collapse to the unfiltered path. The
+	// backend accepts any string shape — websearch_to_tsquery is tolerant of
+	// punctuation, quotes, and operators — so there is nothing to validate at
+	// the handler boundary beyond the empty-string -> NULL mapping.
+	searchQ := model.StringToPgtext(r.URL.Query().Get("q"))
+
 	countParams := dbq.CountQuotesParams{
 		FilterAuthorID:   model.OptionalUUIDToPgtype(filterAuthorID),
 		FilterCategoryID: model.OptionalUUIDToPgtype(filterCategoryID),
 		SearchTitle:      searchTitle,
 		FilterTagID:      model.OptionalUUIDToPgtype(filterTagID),
+		SearchQ:          searchQ,
 	}
 
 	quotes, err := h.Q.ListQuotes(r.Context(), dbq.ListQuotesParams{
@@ -65,6 +74,7 @@ func (h *QuoteHandler) List(w http.ResponseWriter, r *http.Request) {
 		FilterCategoryID: countParams.FilterCategoryID,
 		SearchTitle:      countParams.SearchTitle,
 		FilterTagID:      countParams.FilterTagID,
+		SearchQ:          countParams.SearchQ,
 	})
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to list quotes")

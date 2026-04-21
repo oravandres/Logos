@@ -103,14 +103,16 @@ by authors and quotes via FK.
 | `category_id` | `UUID` | FK → `categories.id`, NULLABLE | e.g. "philosophy", "motivation" |
 | `created_at` | `TIMESTAMPTZ` | NOT NULL, default `NOW()` | |
 | `updated_at` | `TIMESTAMPTZ` | NOT NULL, default `NOW()` | |
+| `search_vector` | `TSVECTOR` | GENERATED ALWAYS AS … STORED | Full-text search index material (migration 000007); `setweight(title, 'A') || setweight(text, 'B')` under the `'english'` config |
 
 **Indexes:**
 
 - `ix_quotes_author_id` — B-tree on `author_id` (FK lookups, filter by author)
 - `ix_quotes_image_id` — B-tree on `image_id` (FK lookup)
 - `ix_quotes_category_id` — B-tree on `category_id` (filter by category)
-- `ix_quotes_title` — B-tree on `title` (search)
+- `ix_quotes_title_trgm` — GIN (trigram) on `title` (legacy `?title=` substring filter)
 - `ix_quotes_created_at` — B-tree on `created_at` (sorting / pagination)
+- `ix_quotes_search_vector` — GIN on `search_vector` (full-text `?q=` search)
 
 ### 3.5 Table: `tags`
 
@@ -193,11 +195,20 @@ Base path: `/api/v1`
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/quotes` | List quotes (paginated, filterable by author/tag/category) |
+| `GET` | `/quotes` | List quotes (paginated, filterable by author/tag/category, searchable via `?q`) |
 | `GET` | `/quotes/{id}` | Get single quote with author, image, category, tags |
 | `POST` | `/quotes` | Create quote (accepts image_id, category_id, tag IDs) |
 | `PUT` | `/quotes/{id}` | Update quote |
 | `DELETE` | `/quotes/{id}` | Delete quote (cascades quote_tags) |
+
+**Query parameters on `GET /quotes`:**
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `limit`, `offset` | int | Pagination window |
+| `author_id`, `category_id`, `tag_id` | UUID | Facet filters (AND-composed) |
+| `title` | string | Legacy substring filter on `title` (trigram-accelerated `ILIKE`) |
+| `q` | string | Full-text search across title (weight A) + body (weight B) via a stored `tsvector`; uses `websearch_to_tsquery('english', …)` so the user-facing syntax `"exact phrase"`, `-excluded`, `or` is accepted with no parse errors. Results are `ts_rank_cd`-ranked when set; ordering falls back to `created_at DESC, id DESC` when absent. |
 
 ### 4.5 Tags
 
@@ -267,7 +278,9 @@ Logos/
 │   ├── 000005_create_tags.up.sql
 │   ├── 000005_create_tags.down.sql
 │   ├── 000006_create_quote_tags.up.sql
-│   └── 000006_create_quote_tags.down.sql
+│   ├── 000006_create_quote_tags.down.sql
+│   ├── 000007_add_quotes_search_vector.up.sql
+│   └── 000007_add_quotes_search_vector.down.sql
 ├── queries/                     # sqlc SQL source files
 │   ├── categories.sql
 │   ├── images.sql
@@ -391,6 +404,7 @@ Final image is ~10-15 MB with the static Go binary + migration SQL files.
 | ~~Phase 7~~ | Tags CRUD + quote-tag association | Handler, model types, join queries, tests |
 | ~~Phase 8~~ | Kubernetes manifests (MiMi repo) | Namespace, PostgreSQL StatefulSet, Logos Deployment, Ingress, Argo CD app, ServiceMonitor, SealedSecret |
 | ~~Phase 9~~ | Build script + README | `build-and-import.sh`, updated `README.md` |
+| ~~Phase 10~~ | Quotes full-text search | Migration `000007_add_quotes_search_vector.{up,down}.sql`, `?q=` param on `GET /quotes` with `websearch_to_tsquery` + `ts_rank_cd`, handler + regression tests pinning the sqlc arg layout |
 
 ---
 
@@ -410,8 +424,13 @@ Final image is ~10-15 MB with the static Go binary + migration SQL files.
 
 - **Image upload**: For now images are stored as URLs. A future iteration could
   accept file uploads and push to MinIO (already deployed on DarkBase).
-- **Full-text search**: PostgreSQL `tsvector` index on `quotes.text` for
-  efficient text search. Can be added as a migration later.
+- ~~**Full-text search**: PostgreSQL `tsvector` index on `quotes.text`.~~
+  _Shipped._ Migration `000007_add_quotes_search_vector.up.sql` adds a stored
+  generated `tsvector` column (`setweight(title, 'A') || setweight(text, 'B')`)
+  with a GIN index. `GET /quotes?q=…` uses `websearch_to_tsquery('english', …)`
+  and `ts_rank_cd` ordering; see §4.4. The `'english'` config is hard-coded for
+  v1; a per-row `search_config` column can be added if a multilingual corpus
+  materializes.
 - **Rate limiting**: Not needed initially (internal network only).
 - **LogosUI**: Separate repo, separate Argo CD app; will consume this API.
 - **CI pipeline**: GitHub Actions workflow for `go vet`, `go test`, `golangci-lint`,

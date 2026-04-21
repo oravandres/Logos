@@ -6,7 +6,11 @@ WHERE qt.quote_id = $1
 ORDER BY t.name;
 
 -- name: ListQuotesByTag :many
-SELECT q.id, q.title, q.text, q.author_id, q.image_id, q.category_id, q.created_at, q.updated_at
+-- Selects all nine quotes columns (including search_vector) so sqlc returns
+-- the canonical `Quote` row type instead of a per-query ListQuotesByTagRow.
+-- The search_vector value is mapped to a Go string via the sqlc.yaml override
+-- and never consumed at the handler boundary.
+SELECT q.id, q.title, q.text, q.author_id, q.image_id, q.category_id, q.created_at, q.updated_at, q.search_vector
 FROM quotes q
 JOIN quote_tags qt ON qt.quote_id = q.id
 WHERE qt.tag_id = $1
