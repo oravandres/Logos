@@ -57,7 +57,7 @@ func (q *Queries) CountQuotes(ctx context.Context, arg CountQuotesParams) (int64
 const createQuote = `-- name: CreateQuote :one
 INSERT INTO quotes (title, text, author_id, image_id, category_id)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, title, text, author_id, image_id, category_id, created_at, updated_at, search_vector
+RETURNING id, title, text, author_id, image_id, category_id, created_at, updated_at
 `
 
 type CreateQuoteParams struct {
@@ -68,7 +68,18 @@ type CreateQuoteParams struct {
 	CategoryID pgtype.UUID `json:"category_id"`
 }
 
-func (q *Queries) CreateQuote(ctx context.Context, arg CreateQuoteParams) (Quote, error) {
+type CreateQuoteRow struct {
+	ID         pgtype.UUID        `json:"id"`
+	Title      string             `json:"title"`
+	Text       string             `json:"text"`
+	AuthorID   pgtype.UUID        `json:"author_id"`
+	ImageID    pgtype.UUID        `json:"image_id"`
+	CategoryID pgtype.UUID        `json:"category_id"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) CreateQuote(ctx context.Context, arg CreateQuoteParams) (CreateQuoteRow, error) {
 	row := q.db.QueryRow(ctx, createQuote,
 		arg.Title,
 		arg.Text,
@@ -76,7 +87,7 @@ func (q *Queries) CreateQuote(ctx context.Context, arg CreateQuoteParams) (Quote
 		arg.ImageID,
 		arg.CategoryID,
 	)
-	var i Quote
+	var i CreateQuoteRow
 	err := row.Scan(
 		&i.ID,
 		&i.Title,
@@ -86,7 +97,6 @@ func (q *Queries) CreateQuote(ctx context.Context, arg CreateQuoteParams) (Quote
 		&i.CategoryID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.SearchVector,
 	)
 	return i, err
 }
@@ -102,13 +112,24 @@ func (q *Queries) DeleteQuote(ctx context.Context, id pgtype.UUID) (pgtype.UUID,
 }
 
 const getQuote = `-- name: GetQuote :one
-SELECT id, title, text, author_id, image_id, category_id, created_at, updated_at, search_vector
+SELECT id, title, text, author_id, image_id, category_id, created_at, updated_at
 FROM quotes WHERE id = $1
 `
 
-func (q *Queries) GetQuote(ctx context.Context, id pgtype.UUID) (Quote, error) {
+type GetQuoteRow struct {
+	ID         pgtype.UUID        `json:"id"`
+	Title      string             `json:"title"`
+	Text       string             `json:"text"`
+	AuthorID   pgtype.UUID        `json:"author_id"`
+	ImageID    pgtype.UUID        `json:"image_id"`
+	CategoryID pgtype.UUID        `json:"category_id"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) GetQuote(ctx context.Context, id pgtype.UUID) (GetQuoteRow, error) {
 	row := q.db.QueryRow(ctx, getQuote, id)
-	var i Quote
+	var i GetQuoteRow
 	err := row.Scan(
 		&i.ID,
 		&i.Title,
@@ -118,7 +139,6 @@ func (q *Queries) GetQuote(ctx context.Context, id pgtype.UUID) (Quote, error) {
 		&i.CategoryID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.SearchVector,
 	)
 	return i, err
 }
@@ -134,7 +154,7 @@ func (q *Queries) GetQuoteForKeyShare(ctx context.Context, id pgtype.UUID) (pgty
 }
 
 const listQuotes = `-- name: ListQuotes :many
-SELECT id, title, text, author_id, image_id, category_id, created_at, updated_at, search_vector
+SELECT id, title, text, author_id, image_id, category_id, created_at, updated_at
 FROM quotes
 WHERE (author_id = $3 OR $3 IS NULL)
   AND (category_id = $4 OR $4 IS NULL)
@@ -169,6 +189,17 @@ type ListQuotesParams struct {
 	SearchQ          pgtype.Text `json:"search_q"`
 }
 
+type ListQuotesRow struct {
+	ID         pgtype.UUID        `json:"id"`
+	Title      string             `json:"title"`
+	Text       string             `json:"text"`
+	AuthorID   pgtype.UUID        `json:"author_id"`
+	ImageID    pgtype.UUID        `json:"image_id"`
+	CategoryID pgtype.UUID        `json:"category_id"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}
+
 // The tag filter is expressed as `id IN (SELECT ...)` rather than a correlated
 // EXISTS so PostgreSQL can hash the inner result once and run it as a hashed
 // semi-join driven from ix_quote_tags_tag_id. With a correlated EXISTS the
@@ -191,11 +222,14 @@ type ListQuotesParams struct {
 // search_q is NULL the CASE returns NULL uniformly and the secondary keys take
 // over, so the historic ordering is preserved bit-for-bit.
 //
-// search_vector is included in the returned columns so sqlc keeps emitting
-// the canonical `Quote` row type (rather than per-query ListQuotesRow etc.).
-// The value is never consumed in Go; see the sqlc.yaml override mapping
-// tsvector -> string.
-func (q *Queries) ListQuotes(ctx context.Context, arg ListQuotesParams) ([]Quote, error) {
+// search_vector is intentionally NOT in the SELECT list: it is a GIN-indexed
+// generated column used only in the WHERE and ORDER BY, and the handler drops
+// the value immediately. Selecting it would force every list/get/create/update
+// to transfer and decode a potentially-large tsvector text representation on
+// the hot path purely as codegen sugar. sqlc therefore emits per-query row
+// types (ListQuotesRow, GetQuoteRow, CreateQuoteRow, UpdateQuoteRow) and
+// model.QuoteResponseFrom* adapts each of them; see internal/model/quote.go.
+func (q *Queries) ListQuotes(ctx context.Context, arg ListQuotesParams) ([]ListQuotesRow, error) {
 	rows, err := q.db.Query(ctx, listQuotes,
 		arg.Limit,
 		arg.Offset,
@@ -209,9 +243,9 @@ func (q *Queries) ListQuotes(ctx context.Context, arg ListQuotesParams) ([]Quote
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Quote{}
+	items := []ListQuotesRow{}
 	for rows.Next() {
-		var i Quote
+		var i ListQuotesRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Title,
@@ -221,7 +255,6 @@ func (q *Queries) ListQuotes(ctx context.Context, arg ListQuotesParams) ([]Quote
 			&i.CategoryID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.SearchVector,
 		); err != nil {
 			return nil, err
 		}
@@ -238,7 +271,7 @@ UPDATE quotes
 SET title = $1, text = $2, author_id = $3, image_id = $4,
     category_id = $5, updated_at = NOW()
 WHERE id = $6
-RETURNING id, title, text, author_id, image_id, category_id, created_at, updated_at, search_vector
+RETURNING id, title, text, author_id, image_id, category_id, created_at, updated_at
 `
 
 type UpdateQuoteParams struct {
@@ -250,7 +283,18 @@ type UpdateQuoteParams struct {
 	ID         pgtype.UUID `json:"id"`
 }
 
-func (q *Queries) UpdateQuote(ctx context.Context, arg UpdateQuoteParams) (Quote, error) {
+type UpdateQuoteRow struct {
+	ID         pgtype.UUID        `json:"id"`
+	Title      string             `json:"title"`
+	Text       string             `json:"text"`
+	AuthorID   pgtype.UUID        `json:"author_id"`
+	ImageID    pgtype.UUID        `json:"image_id"`
+	CategoryID pgtype.UUID        `json:"category_id"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) UpdateQuote(ctx context.Context, arg UpdateQuoteParams) (UpdateQuoteRow, error) {
 	row := q.db.QueryRow(ctx, updateQuote,
 		arg.Title,
 		arg.Text,
@@ -259,7 +303,7 @@ func (q *Queries) UpdateQuote(ctx context.Context, arg UpdateQuoteParams) (Quote
 		arg.CategoryID,
 		arg.ID,
 	)
-	var i Quote
+	var i UpdateQuoteRow
 	err := row.Scan(
 		&i.ID,
 		&i.Title,
@@ -269,7 +313,6 @@ func (q *Queries) UpdateQuote(ctx context.Context, arg UpdateQuoteParams) (Quote
 		&i.CategoryID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.SearchVector,
 	)
 	return i, err
 }

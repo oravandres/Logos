@@ -45,7 +45,7 @@ type Quote struct {
 	CategoryID   pgtype.UUID        `json:"category_id"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
-	SearchVector string             `json:"search_vector"`
+	SearchVector interface{}        `json:"search_vector"`
 }
 
 type QuoteTag struct {

@@ -21,11 +21,14 @@
 -- search_q is NULL the CASE returns NULL uniformly and the secondary keys take
 -- over, so the historic ordering is preserved bit-for-bit.
 --
--- search_vector is included in the returned columns so sqlc keeps emitting
--- the canonical `Quote` row type (rather than per-query ListQuotesRow etc.).
--- The value is never consumed in Go; see the sqlc.yaml override mapping
--- tsvector -> string.
-SELECT id, title, text, author_id, image_id, category_id, created_at, updated_at, search_vector
+-- search_vector is intentionally NOT in the SELECT list: it is a GIN-indexed
+-- generated column used only in the WHERE and ORDER BY, and the handler drops
+-- the value immediately. Selecting it would force every list/get/create/update
+-- to transfer and decode a potentially-large tsvector text representation on
+-- the hot path purely as codegen sugar. sqlc therefore emits per-query row
+-- types (ListQuotesRow, GetQuoteRow, CreateQuoteRow, UpdateQuoteRow) and
+-- model.QuoteResponseFrom* adapts each of them; see internal/model/quote.go.
+SELECT id, title, text, author_id, image_id, category_id, created_at, updated_at
 FROM quotes
 WHERE (author_id = sqlc.narg('filter_author_id') OR sqlc.narg('filter_author_id') IS NULL)
   AND (category_id = sqlc.narg('filter_category_id') OR sqlc.narg('filter_category_id') IS NULL)
@@ -71,7 +74,7 @@ WHERE (author_id = sqlc.narg('filter_author_id') OR sqlc.narg('filter_author_id'
   );
 
 -- name: GetQuote :one
-SELECT id, title, text, author_id, image_id, category_id, created_at, updated_at, search_vector
+SELECT id, title, text, author_id, image_id, category_id, created_at, updated_at
 FROM quotes WHERE id = $1;
 
 -- name: GetQuoteForKeyShare :one
@@ -80,14 +83,14 @@ SELECT id FROM quotes WHERE id = $1 FOR KEY SHARE;
 -- name: CreateQuote :one
 INSERT INTO quotes (title, text, author_id, image_id, category_id)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, title, text, author_id, image_id, category_id, created_at, updated_at, search_vector;
+RETURNING id, title, text, author_id, image_id, category_id, created_at, updated_at;
 
 -- name: UpdateQuote :one
 UPDATE quotes
 SET title = $1, text = $2, author_id = $3, image_id = $4,
     category_id = $5, updated_at = NOW()
 WHERE id = $6
-RETURNING id, title, text, author_id, image_id, category_id, created_at, updated_at, search_vector;
+RETURNING id, title, text, author_id, image_id, category_id, created_at, updated_at;
 
 -- name: DeleteQuote :one
 DELETE FROM quotes WHERE id = $1 RETURNING id;

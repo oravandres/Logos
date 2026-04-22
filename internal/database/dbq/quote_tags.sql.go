@@ -41,7 +41,7 @@ func (q *Queries) CountQuotesByTag(ctx context.Context, tagID pgtype.UUID) (int6
 }
 
 const listQuotesByTag = `-- name: ListQuotesByTag :many
-SELECT q.id, q.title, q.text, q.author_id, q.image_id, q.category_id, q.created_at, q.updated_at, q.search_vector
+SELECT q.id, q.title, q.text, q.author_id, q.image_id, q.category_id, q.created_at, q.updated_at
 FROM quotes q
 JOIN quote_tags qt ON qt.quote_id = q.id
 WHERE qt.tag_id = $1
@@ -55,19 +55,26 @@ type ListQuotesByTagParams struct {
 	Offset int32       `json:"offset"`
 }
 
-// Selects all nine quotes columns (including search_vector) so sqlc returns
-// the canonical `Quote` row type instead of a per-query ListQuotesByTagRow.
-// The search_vector value is mapped to a Go string via the sqlc.yaml override
-// and never consumed at the handler boundary.
-func (q *Queries) ListQuotesByTag(ctx context.Context, arg ListQuotesByTagParams) ([]Quote, error) {
+type ListQuotesByTagRow struct {
+	ID         pgtype.UUID        `json:"id"`
+	Title      string             `json:"title"`
+	Text       string             `json:"text"`
+	AuthorID   pgtype.UUID        `json:"author_id"`
+	ImageID    pgtype.UUID        `json:"image_id"`
+	CategoryID pgtype.UUID        `json:"category_id"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) ListQuotesByTag(ctx context.Context, arg ListQuotesByTagParams) ([]ListQuotesByTagRow, error) {
 	rows, err := q.db.Query(ctx, listQuotesByTag, arg.TagID, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Quote{}
+	items := []ListQuotesByTagRow{}
 	for rows.Next() {
-		var i Quote
+		var i ListQuotesByTagRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Title,
@@ -77,7 +84,6 @@ func (q *Queries) ListQuotesByTag(ctx context.Context, arg ListQuotesByTagParams
 			&i.CategoryID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.SearchVector,
 		); err != nil {
 			return nil, err
 		}

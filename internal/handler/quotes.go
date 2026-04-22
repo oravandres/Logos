@@ -88,7 +88,7 @@ func (h *QuoteHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, http.StatusOK, model.PaginatedResponse[model.QuoteResponse]{
-		Items:  model.QuotesFromDB(quotes),
+		Items:  model.QuoteResponsesFromListRows(quotes),
 		Total:  total,
 		Limit:  limit,
 		Offset: offset,
@@ -113,7 +113,7 @@ func (h *QuoteHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respondJSON(w, http.StatusOK, model.QuoteFromDB(quote))
+	respondJSON(w, http.StatusOK, model.QuoteResponseFromGetRow(quote))
 }
 
 // Create validates the request body and inserts a new quote.
@@ -164,7 +164,7 @@ func (h *QuoteHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respondJSON(w, http.StatusCreated, model.QuoteFromDB(quote))
+	respondJSON(w, http.StatusCreated, model.QuoteResponseFromCreateRow(quote))
 }
 
 // Update replaces the fields of an existing quote identified by UUID.
@@ -226,7 +226,7 @@ func (h *QuoteHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respondJSON(w, http.StatusOK, model.QuoteFromDB(quote))
+	respondJSON(w, http.StatusOK, model.QuoteResponseFromUpdateRow(quote))
 }
 
 // Delete removes a quote by its UUID.

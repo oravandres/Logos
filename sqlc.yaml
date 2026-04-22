@@ -10,13 +10,3 @@ sql:
         sql_package: "pgx/v5"
         emit_json_tags: true
         emit_empty_slices: true
-        # The quotes.search_vector generated column backs full-text search
-        # (migration 000007). We never read its value in Go — it's purely a
-        # GIN-indexed expression used in WHERE / ORDER BY via tsvector operators.
-        # Map it to `string` (pgx v5 decodes tsvector text format into a Go
-        # string) so the `Quote` row struct stays canonical across every query;
-        # without this override sqlc emits per-query row types and the handler
-        # and model converters have to grow per-query overloads.
-        overrides:
-          - column: "quotes.search_vector"
-            go_type: "string"
