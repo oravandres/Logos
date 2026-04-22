@@ -23,6 +23,10 @@ WHERE (author_id = $1 OR $1 IS NULL)
       WHERE qt.tag_id = $4
     )
   )
+  AND (
+    $5::text IS NULL
+    OR search_vector @@ websearch_to_tsquery('english', $5)
+  )
 `
 
 type CountQuotesParams struct {
@@ -30,18 +34,20 @@ type CountQuotesParams struct {
 	FilterCategoryID pgtype.UUID `json:"filter_category_id"`
 	SearchTitle      pgtype.Text `json:"search_title"`
 	FilterTagID      pgtype.UUID `json:"filter_tag_id"`
+	SearchQ          pgtype.Text `json:"search_q"`
 }
 
-// Mirrors the IN-subquery shape used in ListQuotes so the same hashed semi-join
-// plan fires. Keeping the two clauses byte-identical (modulo SELECT vs count)
-// prevents pagination totals from drifting from the returned items if the
-// filter shape ever changes again.
+// Mirrors the WHERE shape used in ListQuotes so the same plans fire. Keeping
+// the two clauses byte-identical (modulo SELECT vs count and the ORDER BY +
+// LIMIT that count doesn't need) prevents pagination totals from drifting
+// from the returned items if the filter shape ever changes again.
 func (q *Queries) CountQuotes(ctx context.Context, arg CountQuotesParams) (int64, error) {
 	row := q.db.QueryRow(ctx, countQuotes,
 		arg.FilterAuthorID,
 		arg.FilterCategoryID,
 		arg.SearchTitle,
 		arg.FilterTagID,
+		arg.SearchQ,
 	)
 	var count int64
 	err := row.Scan(&count)
@@ -62,7 +68,18 @@ type CreateQuoteParams struct {
 	CategoryID pgtype.UUID `json:"category_id"`
 }
 
-func (q *Queries) CreateQuote(ctx context.Context, arg CreateQuoteParams) (Quote, error) {
+type CreateQuoteRow struct {
+	ID         pgtype.UUID        `json:"id"`
+	Title      string             `json:"title"`
+	Text       string             `json:"text"`
+	AuthorID   pgtype.UUID        `json:"author_id"`
+	ImageID    pgtype.UUID        `json:"image_id"`
+	CategoryID pgtype.UUID        `json:"category_id"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) CreateQuote(ctx context.Context, arg CreateQuoteParams) (CreateQuoteRow, error) {
 	row := q.db.QueryRow(ctx, createQuote,
 		arg.Title,
 		arg.Text,
@@ -70,7 +87,7 @@ func (q *Queries) CreateQuote(ctx context.Context, arg CreateQuoteParams) (Quote
 		arg.ImageID,
 		arg.CategoryID,
 	)
-	var i Quote
+	var i CreateQuoteRow
 	err := row.Scan(
 		&i.ID,
 		&i.Title,
@@ -99,9 +116,20 @@ SELECT id, title, text, author_id, image_id, category_id, created_at, updated_at
 FROM quotes WHERE id = $1
 `
 
-func (q *Queries) GetQuote(ctx context.Context, id pgtype.UUID) (Quote, error) {
+type GetQuoteRow struct {
+	ID         pgtype.UUID        `json:"id"`
+	Title      string             `json:"title"`
+	Text       string             `json:"text"`
+	AuthorID   pgtype.UUID        `json:"author_id"`
+	ImageID    pgtype.UUID        `json:"image_id"`
+	CategoryID pgtype.UUID        `json:"category_id"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) GetQuote(ctx context.Context, id pgtype.UUID) (GetQuoteRow, error) {
 	row := q.db.QueryRow(ctx, getQuote, id)
-	var i Quote
+	var i GetQuoteRow
 	err := row.Scan(
 		&i.ID,
 		&i.Title,
@@ -138,7 +166,16 @@ WHERE (author_id = $3 OR $3 IS NULL)
       WHERE qt.tag_id = $6
     )
   )
-ORDER BY created_at DESC, id DESC
+  AND (
+    $7::text IS NULL
+    OR search_vector @@ websearch_to_tsquery('english', $7)
+  )
+ORDER BY
+  CASE
+    WHEN $7::text IS NULL THEN NULL
+    ELSE ts_rank_cd(search_vector, websearch_to_tsquery('english', $7))
+  END DESC NULLS LAST,
+  created_at DESC, id DESC
 LIMIT $1 OFFSET $2
 `
 
@@ -149,6 +186,18 @@ type ListQuotesParams struct {
 	FilterCategoryID pgtype.UUID `json:"filter_category_id"`
 	SearchTitle      pgtype.Text `json:"search_title"`
 	FilterTagID      pgtype.UUID `json:"filter_tag_id"`
+	SearchQ          pgtype.Text `json:"search_q"`
+}
+
+type ListQuotesRow struct {
+	ID         pgtype.UUID        `json:"id"`
+	Title      string             `json:"title"`
+	Text       string             `json:"text"`
+	AuthorID   pgtype.UUID        `json:"author_id"`
+	ImageID    pgtype.UUID        `json:"image_id"`
+	CategoryID pgtype.UUID        `json:"category_id"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
 }
 
 // The tag filter is expressed as `id IN (SELECT ...)` rather than a correlated
@@ -157,7 +206,30 @@ type ListQuotesParams struct {
 // planner re-probes quote_tags_pkey per outer row (~100K loops, ~300K buffers
 // on a 100K-quote dataset for a sparse tag); the IN form drops to ~1.2K
 // buffers regardless of tag selectivity. See PR #14 EXPLAIN ANALYZE evidence.
-func (q *Queries) ListQuotes(ctx context.Context, arg ListQuotesParams) ([]Quote, error) {
+//
+// The search_q filter runs a websearch_to_tsquery('english', ...) against the
+// quotes.search_vector GIN index (added in migration 000007). websearch_to_tsquery
+// is used deliberately over plainto_tsquery / to_tsquery: it accepts the
+// user-facing search-box syntax ("exact phrase", -excluded, or) and never
+// raises SQLSTATE 42601 on stray punctuation, so any string typed by a user is
+// a valid input. When search_q is NULL, the clause short-circuits and the
+// tsquery expression is never evaluated — the planner reduces it to a
+// constant-false OR constant-true and prunes the @@ branch entirely.
+//
+// When search_q is set the ORDER BY switches to ts_rank_cd DESC first, falling
+// back to (created_at DESC, id DESC) for tie-breaking and for the
+// deterministic-pagination rule in 12-pr-review-lessons.mdc §Indexing. When
+// search_q is NULL the CASE returns NULL uniformly and the secondary keys take
+// over, so the historic ordering is preserved bit-for-bit.
+//
+// search_vector is intentionally NOT in the SELECT list: it is a GIN-indexed
+// generated column used only in the WHERE and ORDER BY, and the handler drops
+// the value immediately. Selecting it would force every list/get/create/update
+// to transfer and decode a potentially-large tsvector text representation on
+// the hot path purely as codegen sugar. sqlc therefore emits per-query row
+// types (ListQuotesRow, GetQuoteRow, CreateQuoteRow, UpdateQuoteRow) and
+// model.QuoteResponseFrom* adapts each of them; see internal/model/quote.go.
+func (q *Queries) ListQuotes(ctx context.Context, arg ListQuotesParams) ([]ListQuotesRow, error) {
 	rows, err := q.db.Query(ctx, listQuotes,
 		arg.Limit,
 		arg.Offset,
@@ -165,14 +237,15 @@ func (q *Queries) ListQuotes(ctx context.Context, arg ListQuotesParams) ([]Quote
 		arg.FilterCategoryID,
 		arg.SearchTitle,
 		arg.FilterTagID,
+		arg.SearchQ,
 	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Quote{}
+	items := []ListQuotesRow{}
 	for rows.Next() {
-		var i Quote
+		var i ListQuotesRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Title,
@@ -210,7 +283,18 @@ type UpdateQuoteParams struct {
 	ID         pgtype.UUID `json:"id"`
 }
 
-func (q *Queries) UpdateQuote(ctx context.Context, arg UpdateQuoteParams) (Quote, error) {
+type UpdateQuoteRow struct {
+	ID         pgtype.UUID        `json:"id"`
+	Title      string             `json:"title"`
+	Text       string             `json:"text"`
+	AuthorID   pgtype.UUID        `json:"author_id"`
+	ImageID    pgtype.UUID        `json:"image_id"`
+	CategoryID pgtype.UUID        `json:"category_id"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) UpdateQuote(ctx context.Context, arg UpdateQuoteParams) (UpdateQuoteRow, error) {
 	row := q.db.QueryRow(ctx, updateQuote,
 		arg.Title,
 		arg.Text,
@@ -219,7 +303,7 @@ func (q *Queries) UpdateQuote(ctx context.Context, arg UpdateQuoteParams) (Quote
 		arg.CategoryID,
 		arg.ID,
 	)
-	var i Quote
+	var i UpdateQuoteRow
 	err := row.Scan(
 		&i.ID,
 		&i.Title,

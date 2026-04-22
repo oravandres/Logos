@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -353,8 +354,11 @@ func TestQuoteList_TagFilterIsThreadedToBothQueries(t *testing.T) {
 
 	// Argument layout, set by sqlc and asserted here so a sqlc regeneration
 	// that reorders params fails loudly:
-	//   ListQuotes:  [limit, offset, FilterAuthorID, FilterCategoryID, SearchTitle, FilterTagID]
-	//   CountQuotes: [FilterAuthorID, FilterCategoryID, SearchTitle, FilterTagID]
+	//   ListQuotes:  [limit, offset, FilterAuthorID, FilterCategoryID, SearchTitle, FilterTagID, SearchQ]
+	//   CountQuotes: [FilterAuthorID, FilterCategoryID, SearchTitle, FilterTagID, SearchQ]
+	// SearchQ was appended in the FTS migration (queries/quotes.sql, migration
+	// 000007) — preserving FilterTagID's position was deliberate so this pin
+	// did not need to move.
 	listTagArg := uuidArgAt(t, "ListQuotes", rec.queryCalls[0].args, 5)
 	countTagArg := uuidArgAt(t, "CountQuotes", rec.queryRowCalls[0].args, 3)
 
@@ -392,4 +396,184 @@ func uuidArgAt(t *testing.T, queryName string, args []any, idx int) uuid.UUID {
 		t.Fatalf("%s args[%d] = invalid pgtype.UUID, want valid", queryName, idx)
 	}
 	return uuid.UUID(pg.Bytes)
+}
+
+// textArgAt extracts a pgtype.Text at positional args[idx], surfacing type
+// drift and Valid-flag drift with a clear failure message. Mirror of
+// uuidArgAt for the text-valued full-text-search parameter.
+func textArgAt(t *testing.T, queryName string, args []any, idx int) pgtype.Text {
+	t.Helper()
+	if idx >= len(args) {
+		t.Fatalf("%s args=%+v has no index %d", queryName, args, idx)
+	}
+	pg, ok := args[idx].(pgtype.Text)
+	if !ok {
+		t.Fatalf("%s args[%d] = %T (%v), want pgtype.Text", queryName, idx, args[idx], args[idx])
+	}
+	return pg
+}
+
+// TestQuoteList_SearchQIsThreadedToBothQueries pins a regression that the
+// `?q=` query parameter has to be threaded into BOTH ListQuotes and
+// CountQuotes. Same shape as the ?tag_id= test above: without this, items and
+// total silently drift under a search and pagination breaks for the searching
+// user. We assert that (a) both code paths receive a valid pgtype.Text, (b)
+// they carry the same bytes, and (c) the bytes are what the URL sent after
+// Go's net/http URL-decoded them.
+func TestQuoteList_SearchQIsThreadedToBothQueries(t *testing.T) {
+	t.Parallel()
+
+	// Include a quoted phrase and a negation operator so the test exercises
+	// the websearch_to_tsquery syntax Logos supports. The handler is a pure
+	// pass-through — no parsing, no validation — so whatever the URL carries
+	// must show up byte-for-byte as the SearchQ parameter value.
+	const wantQ = `"know thyself" -fortune`
+
+	rec := &recordingDBTX{}
+	router := quoteRouter(&handler.QuoteHandler{Q: dbq.New(rec)})
+
+	resp := getRequest(t, router, "/quotes?q="+url.QueryEscape(wantQ))
+	assertStatus(t, resp, http.StatusOK)
+
+	if len(rec.queryCalls) != 1 {
+		t.Fatalf("Query calls = %d, want 1; calls=%+v", len(rec.queryCalls), rec.queryCalls)
+	}
+	if len(rec.queryRowCalls) != 1 {
+		t.Fatalf("QueryRow calls = %d, want 1; calls=%+v", len(rec.queryRowCalls), rec.queryRowCalls)
+	}
+
+	if !strings.Contains(rec.queryCalls[0].sql, "name: ListQuotes") {
+		t.Fatalf("Query SQL = %q, want ListQuotes", rec.queryCalls[0].sql)
+	}
+	if !strings.Contains(rec.queryRowCalls[0].sql, "name: CountQuotes") {
+		t.Fatalf("QueryRow SQL = %q, want CountQuotes", rec.queryRowCalls[0].sql)
+	}
+
+	// Argument layout, set by sqlc and asserted here so a sqlc regeneration
+	// that reorders params fails loudly:
+	//   ListQuotes:  [limit, offset, FilterAuthorID, FilterCategoryID, SearchTitle, FilterTagID, SearchQ]
+	//   CountQuotes: [FilterAuthorID, FilterCategoryID, SearchTitle, FilterTagID, SearchQ]
+	listQArg := textArgAt(t, "ListQuotes", rec.queryCalls[0].args, 6)
+	countQArg := textArgAt(t, "CountQuotes", rec.queryRowCalls[0].args, 4)
+
+	if !listQArg.Valid {
+		t.Fatalf("ListQuotes SearchQ = invalid, want valid string")
+	}
+	if !countQArg.Valid {
+		t.Fatalf("CountQuotes SearchQ = invalid, want valid string")
+	}
+	if listQArg.String != countQArg.String {
+		t.Fatalf("SearchQ drift: List=%q, Count=%q", listQArg.String, countQArg.String)
+	}
+	if listQArg.String != wantQ {
+		t.Fatalf("SearchQ = %q, want %q", listQArg.String, wantQ)
+	}
+}
+
+// TestQuoteList_EmptyQIsTreatedAsAbsent pins the empty-string => NULL contract
+// for ?q=. This matches the ?title= convention and is the hinge that lets the
+// ORDER BY CASE in queries/quotes.sql short-circuit to (created_at, id) when
+// the user has not typed anything. If a future refactor maps "" to a Valid
+// pgtype.Text, the ORDER BY rank expression starts firing against an empty
+// tsquery and the plan changes (and ranks degenerate to 0 across the board,
+// silently killing the historic newest-first ordering for the unfiltered
+// list).
+func TestQuoteList_EmptyQIsTreatedAsAbsent(t *testing.T) {
+	t.Parallel()
+
+	rec := &recordingDBTX{}
+	router := quoteRouter(&handler.QuoteHandler{Q: dbq.New(rec)})
+
+	resp := getRequest(t, router, "/quotes?q=")
+	assertStatus(t, resp, http.StatusOK)
+
+	if len(rec.queryCalls) != 1 || len(rec.queryRowCalls) != 1 {
+		t.Fatalf("calls: Query=%d QueryRow=%d, want 1 each", len(rec.queryCalls), len(rec.queryRowCalls))
+	}
+
+	listQArg := textArgAt(t, "ListQuotes", rec.queryCalls[0].args, 6)
+	countQArg := textArgAt(t, "CountQuotes", rec.queryRowCalls[0].args, 4)
+
+	if listQArg.Valid {
+		t.Fatalf("ListQuotes SearchQ = %+v, want invalid (empty ?q= -> NULL)", listQArg)
+	}
+	if countQArg.Valid {
+		t.Fatalf("CountQuotes SearchQ = %+v, want invalid (empty ?q= -> NULL)", countQArg)
+	}
+}
+
+// TestQuoteList_QAbsentWhenParamMissing pins that a request with no ?q= at
+// all produces the same NULL-valued SearchQ as an explicit ?q=. Without this
+// pin the two could diverge (e.g. missing-param producing an absent arg and
+// empty-string producing a valid empty string) and only one would exercise
+// the WHERE short-circuit in the SQL.
+func TestQuoteList_QAbsentWhenParamMissing(t *testing.T) {
+	t.Parallel()
+
+	rec := &recordingDBTX{}
+	router := quoteRouter(&handler.QuoteHandler{Q: dbq.New(rec)})
+
+	resp := getRequest(t, router, "/quotes")
+	assertStatus(t, resp, http.StatusOK)
+
+	if len(rec.queryCalls) != 1 || len(rec.queryRowCalls) != 1 {
+		t.Fatalf("calls: Query=%d QueryRow=%d, want 1 each", len(rec.queryCalls), len(rec.queryRowCalls))
+	}
+
+	if listQArg := textArgAt(t, "ListQuotes", rec.queryCalls[0].args, 6); listQArg.Valid {
+		t.Fatalf("ListQuotes SearchQ = %+v, want invalid (no ?q= -> NULL)", listQArg)
+	}
+	if countQArg := textArgAt(t, "CountQuotes", rec.queryRowCalls[0].args, 4); countQArg.Valid {
+		t.Fatalf("CountQuotes SearchQ = %+v, want invalid (no ?q= -> NULL)", countQArg)
+	}
+}
+
+// TestQuoteList_QComposesWithFacets pins that ?q= does not swallow or replace
+// the other filter facets: all four (?author_id, ?category_id, ?tag_id, ?q)
+// must be threaded on the same request. Without this test, a refactor that
+// early-returns on ?q= could silently drop the facet filters and search
+// across the whole corpus instead of the facet-restricted subset the UI
+// asked for.
+func TestQuoteList_QComposesWithFacets(t *testing.T) {
+	t.Parallel()
+
+	const (
+		authorID = "11111111-1111-1111-1111-111111111111"
+		catID    = "22222222-2222-2222-2222-222222222222"
+		tagID    = "33333333-3333-3333-3333-333333333333"
+		q        = "virtue"
+	)
+
+	rec := &recordingDBTX{}
+	router := quoteRouter(&handler.QuoteHandler{Q: dbq.New(rec)})
+
+	resp := getRequest(t, router,
+		"/quotes?author_id="+authorID+
+			"&category_id="+catID+
+			"&tag_id="+tagID+
+			"&q="+url.QueryEscape(q))
+	assertStatus(t, resp, http.StatusOK)
+
+	if len(rec.queryCalls) != 1 || len(rec.queryRowCalls) != 1 {
+		t.Fatalf("calls: Query=%d QueryRow=%d, want 1 each", len(rec.queryCalls), len(rec.queryRowCalls))
+	}
+
+	// ListQuotes positions: [limit, offset, AuthorID, CategoryID, SearchTitle, TagID, SearchQ]
+	gotAuthor := uuidArgAt(t, "ListQuotes", rec.queryCalls[0].args, 2)
+	gotCat := uuidArgAt(t, "ListQuotes", rec.queryCalls[0].args, 3)
+	gotTag := uuidArgAt(t, "ListQuotes", rec.queryCalls[0].args, 5)
+	gotQ := textArgAt(t, "ListQuotes", rec.queryCalls[0].args, 6)
+
+	if gotAuthor.String() != authorID {
+		t.Fatalf("FilterAuthorID = %s, want %s", gotAuthor, authorID)
+	}
+	if gotCat.String() != catID {
+		t.Fatalf("FilterCategoryID = %s, want %s", gotCat, catID)
+	}
+	if gotTag.String() != tagID {
+		t.Fatalf("FilterTagID = %s, want %s", gotTag, tagID)
+	}
+	if !gotQ.Valid || gotQ.String != q {
+		t.Fatalf("SearchQ = %+v, want {%q, true}", gotQ, q)
+	}
 }
