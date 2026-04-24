@@ -38,14 +38,35 @@ queries/            SQL source files (sqlc input)
 
 Invalid `API_PORT` and `LOG_LEVEL` values now fail fast during startup instead of silently falling back.
 
+## CLI
+
+`logos` dispatches on its first positional argument:
+
+| Invocation       | Behaviour |
+|------------------|-----------|
+| `logos`          | Run migrations, then start the HTTP server. Backward-compatible default for local dev and single-container deploys. |
+| `logos migrate`  | Run pending migrations and exit. Designed for a Kubernetes `initContainer` so the schema is advanced before the serving container starts. |
+| `logos serve`    | Start the HTTP server without running migrations. Pair with `logos migrate` in an `initContainer` so the main container never opens a listener against a stale schema. |
+| `logos help`     | Print the full usage (also `-h` / `--help`). |
+
+Unknown subcommands and extra positional arguments exit non-zero with a diagnostic so a typo in a Pod spec crash-loops instead of silently reverting to the default path.
+
 ## Development
 
 ```bash
 # Prerequisites: Go 1.26+, PostgreSQL, sqlc
 
-# Run migrations and start the server
+# Run migrations and start the server (default, no subcommand)
 DATABASE_URL="postgres://logos:logos@localhost:5432/logos?sslmode=disable" \
   go run ./cmd/logos
+
+# Run migrations only (matches the Kubernetes initContainer)
+DATABASE_URL="postgres://logos:logos@localhost:5432/logos?sslmode=disable" \
+  go run ./cmd/logos migrate
+
+# Start the server against an already-migrated database (matches the main container)
+DATABASE_URL="postgres://logos:logos@localhost:5432/logos?sslmode=disable" \
+  go run ./cmd/logos serve
 
 # Regenerate sqlc code after changing queries/
 sqlc generate
