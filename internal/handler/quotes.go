@@ -58,6 +58,14 @@ func (h *QuoteHandler) List(w http.ResponseWriter, r *http.Request) {
 	// punctuation, quotes, and operators — so there is nothing to validate at
 	// the handler boundary beyond the empty-string -> NULL mapping.
 	searchQ := model.StringToPgtext(r.URL.Query().Get("q"))
+	// LogosUI may dual-send `title` + `q` with the same string while older
+	// `logos-api` revisions are still in rotation: legacy binaries only honor
+	// `title` (ILIKE), while FTS-aware binaries must not AND ILIKE(title) with
+	// @@ tsvector (would drop body-only matches and distort ranking). When `q`
+	// is present, `title` is ignored.
+	if searchQ.Valid {
+		searchTitle = model.StringToPgtext("")
+	}
 
 	countParams := dbq.CountQuotesParams{
 		FilterAuthorID:   model.OptionalUUIDToPgtype(filterAuthorID),

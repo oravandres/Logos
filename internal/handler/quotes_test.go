@@ -470,6 +470,39 @@ func TestQuoteList_SearchQIsThreadedToBothQueries(t *testing.T) {
 	}
 }
 
+// TestQuoteList_QIgnoresDualSentTitle pins that when both ?q= and ?title= are
+// present, SearchTitle is forced to NULL so LogosUI can dual-send the same
+// string for pre-FTS API pods without AND-ing ILIKE(title) onto @@ tsvector.
+func TestQuoteList_QIgnoresDualSentTitle(t *testing.T) {
+	t.Parallel()
+
+	const wantQ = "virtue"
+
+	rec := &recordingDBTX{}
+	router := quoteRouter(&handler.QuoteHandler{Q: dbq.New(rec)})
+
+	resp := getRequest(t, router, "/quotes?q="+url.QueryEscape(wantQ)+"&title="+url.QueryEscape(wantQ))
+	assertStatus(t, resp, http.StatusOK)
+
+	if len(rec.queryCalls) != 1 || len(rec.queryRowCalls) != 1 {
+		t.Fatalf("calls: Query=%d QueryRow=%d, want 1 each", len(rec.queryCalls), len(rec.queryRowCalls))
+	}
+
+	listTitleArg := textArgAt(t, "ListQuotes", rec.queryCalls[0].args, 4)
+	countTitleArg := textArgAt(t, "CountQuotes", rec.queryRowCalls[0].args, 2)
+	if listTitleArg.Valid {
+		t.Fatalf("ListQuotes SearchTitle = %+v, want invalid when ?q= is set", listTitleArg)
+	}
+	if countTitleArg.Valid {
+		t.Fatalf("CountQuotes SearchTitle = %+v, want invalid when ?q= is set", countTitleArg)
+	}
+
+	listQArg := textArgAt(t, "ListQuotes", rec.queryCalls[0].args, 6)
+	if !listQArg.Valid || listQArg.String != wantQ {
+		t.Fatalf("ListQuotes SearchQ = %+v, want {%q, true}", listQArg, wantQ)
+	}
+}
+
 // TestQuoteList_EmptyQIsTreatedAsAbsent pins the empty-string => NULL contract
 // for ?q=. This matches the ?title= convention and is the hinge that lets the
 // ORDER BY CASE in queries/quotes.sql short-circuit to (created_at, id) when
