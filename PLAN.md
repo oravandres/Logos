@@ -303,7 +303,7 @@ Logos/
 ├── scripts/
 │   └── pre-push                 # tidy + vet + lint + tests + build
 ├── .github/workflows/
-│   ├── ci.yml                   # tests, race, vet, golangci-lint, staticcheck, govulncheck, attest
+│   ├── ci.yml                   # tests, race, vet, golangci-lint, staticcheck, govulncheck (+ attest on main)
 │   └── docker.yml               # main-only multi-arch GHCR push (linux/amd64, linux/arm64)
 ├── .cursor/rules/               # Coding/architecture rules + PR-review lessons (alwaysApply)
 ├── .golangci.yml                # v2 config; default:none + explicit linter allowlist
@@ -400,8 +400,13 @@ import** (homelab convenience, used for pre-merge smoke tests on DarkBase).
 
 ```
 1.  Developer pushes to Logos repo (main or PR branch).
-2.  .github/workflows/ci.yml runs: vet, race tests, golangci-lint v2,
-    staticcheck, govulncheck, provenance attestation.
+2.  .github/workflows/ci.yml runs on every push + PR: go mod tidy drift
+    check, go test, race tests, go vet, golangci-lint v2, staticcheck,
+    govulncheck, and go build. On `refs/heads/main` **only**, the job
+    additionally builds the service binary, uploads it as an artifact,
+    and produces a SLSA build-provenance attestation via
+    `actions/attest-build-provenance`. PR branches get the full test and
+    lint matrix but no attested artifact.
 3.  On push to main, .github/workflows/docker.yml builds a multi-arch
     image (linux/amd64 + linux/arm64) via buildx and pushes it to
     ghcr.io/oravandres/logos/logos-api with the commit SHA as the tag.
@@ -530,9 +535,11 @@ silent fallback to a default.
 - **LogosUI**: Separate repo, separate Argo CD app; will consume this API.
 - ~~**CI pipeline**: GitHub Actions workflow for `go vet`, `go test`,
   `golangci-lint`.~~ _Shipped._ `.github/workflows/ci.yml` runs vet, race
-  tests, golangci-lint v2, staticcheck, govulncheck, build provenance
-  attestation; `.github/workflows/docker.yml` publishes a multi-arch image to
-  GHCR on `main`. `kubeconform` lives in MiMi (manifests live there).
+  tests, golangci-lint v2, staticcheck, govulncheck, and build on every
+  push + PR; on `refs/heads/main` it also uploads the service binary and
+  attests build provenance. `.github/workflows/docker.yml` publishes a
+  multi-arch image to GHCR on `main`. `kubeconform` lives in MiMi
+  (manifests live there).
 
 ---
 
