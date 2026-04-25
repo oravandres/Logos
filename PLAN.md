@@ -220,12 +220,18 @@ Base path: `/api/v1`
 
 ### 4.6 Operational
 
+Probe and metrics endpoints are mounted at the **router root**, not under the
+`/api/v1` base path used by the rest of this section. The legacy `/health`
+alias is the only operational route inside `/api/v1` (kept for compatibility
+with pinned external monitors). Paths in the table below are fully qualified
+to avoid any ambiguity.
+
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/livez` | Liveness — process-level only, never touches the DB. `200 {"status":"ok"}`. |
 | `GET` | `/readyz` | Readiness — pings the DB. `200 {"status":"ready"}` or `503 {"status":"unready"}`. |
 | `GET` | `/api/v1/health` | Legacy readiness (`{"status":"healthy"\|"unhealthy"}`); kept for LogosUI / external monitors that pinned the original body shape. New consumers should use `/readyz`. |
-| `GET` | `/metrics` | Prometheus metrics. Scraped via `ServiceMonitor` on the ClusterIP service; not exposed through the public Ingress. |
+| `GET` | `/metrics` | Prometheus metrics. Scraped via `ServiceMonitor` on the ClusterIP `logos-api` service; **not** exposed through the public Ingress (see §6.3). |
 
 ---
 
@@ -339,11 +345,20 @@ A dedicated PostgreSQL 16 instance in namespace `logos`.
 
 ### 6.2 Logos API (Deployment)
 
-- **Deployment** with 1 replica, image `logos-api:latest`, `imagePullPolicy: Never`.
+- **Deployment** image pinned by **multi-arch index digest**
+  (`ghcr.io/oravandres/logos/logos-api@sha256:…`), not a floating tag —
+  see MiMi's `.cursor/rules/12-image-pinning-and-gitops.mdc` for the full
+  rationale. `imagePullPolicy: IfNotPresent` is safe only in combination
+  with a digest pin. The local-import path (`build-and-import.sh`) produces
+  `logos-api:<version>` inside `k3s ctr` for DarkBase-only builds.
 - **Environment variables** for `DATABASE_URL` (referencing the postgres Secret).
-- **Init container**: runs the logos binary with a `migrate` subcommand or a
-  standalone golang-migrate container to apply pending migrations.
-- **Health probes**: startup/readiness/liveness on `/api/v1/health`.
+- **Init container**: `logos migrate` (same image as the main container),
+  so the pod only advances to the serving container after the schema
+  reaches head — see `cmd/logos/main.go` for the subcommand dispatch.
+- **Liveness probe**: `GET /livez` (router root, process-level only).
+- **Readiness probe**: `GET /readyz` (router root, pings DB). `/api/v1/health`
+  is kept as a legacy alias for external monitors — new deployments should
+  not probe against it.
 - **Service** (ClusterIP, port 8000) named `logos-api`.
 - **Labels**: `app.kubernetes.io/name: logos-api`, `app.kubernetes.io/part-of: logos`.
 
@@ -353,7 +368,12 @@ A dedicated PostgreSQL 16 instance in namespace `logos`.
 - TLS via cert-manager (`mimi-internal-ca`)
 - Traefik `ingressClassName`
 - Path `/api/v1` → `logos-api:8000`
-- Path `/metrics` → `logos-api:8000`
+- **No `/metrics` ingress path.** `/metrics` is scraped in-cluster by
+  Prometheus via the `ServiceMonitor` in §6.5, hitting the ClusterIP
+  `logos-api` service directly. Keeping it off the public Ingress avoids
+  leaking operational counters and Go runtime internals to anything
+  outside the cluster. Liveness/readiness probes are driven by the
+  kubelet against the pod IP and also do not traverse the Ingress.
 
 ### 6.4 Argo CD Application
 
@@ -373,39 +393,90 @@ Standard `ServiceMonitor` selecting `app.kubernetes.io/part-of: logos`, scraping
 
 ## 7. Build & Deploy Flow
 
+Two supported paths: **CI/GHCR** (canonical, used by Argo CD) and **local
+import** (homelab convenience, used for pre-merge smoke tests on DarkBase).
+
+### 7.1 CI / GHCR (canonical)
+
 ```
-1.  Developer pushes to Logos repo
-2.  On the build host (DarkBase or CI):
-      docker build -t logos-api:latest .
-      docker save logos-api:latest | sudo k3s ctr images import -
-3.  Add/update manifests in MiMi repo (manifests/logos/*)
-4.  Push MiMi repo → Argo CD auto-syncs
-5.  Init container runs migrations (golang-migrate)
-6.  Logos API pod starts, connects to logos-postgres
+1.  Developer pushes to Logos repo (main or PR branch).
+2.  .github/workflows/ci.yml runs: vet, race tests, golangci-lint v2,
+    staticcheck, govulncheck, provenance attestation.
+3.  On push to main, .github/workflows/docker.yml builds a multi-arch
+    image (linux/amd64 + linux/arm64) via buildx and pushes it to
+    ghcr.io/oravandres/logos/logos-api with the commit SHA as the tag.
+4.  Operator captures the multi-arch index digest:
+      docker buildx imagetools inspect \
+        ghcr.io/oravandres/logos/logos-api:<sha>
+    and pins that digest (not the tag) in the MiMi manifest — see
+    MiMi's .cursor/rules/12-image-pinning-and-gitops.mdc.
+5.  Push the MiMi manifest bump → Argo CD auto-syncs.
+6.  Rolling update:
+      - init container runs `logos migrate` against logos-postgres.
+      - main container (`logos serve`) starts only after the init
+        container exits 0 — see §6.2.
 ```
 
-A `build-and-import.sh` script will be added to this repo for step 2.
+### 7.2 Local import (`build-and-import.sh`)
 
-### Dockerfile strategy (multi-stage)
+For DarkBase smoke tests without round-tripping through GHCR. The script
+is checked in at the repo root:
+
+```
+./build-and-import.sh [VERSION]
+```
+
+- `VERSION` defaults to `git rev-parse --short HEAD`; it is stamped into
+  the local image tag (`logos-api:<version>`) and `k3s ctr`-imported on
+  the current host.
+- The script also prints the matching GHCR reference
+  (`ghcr.io/oravandres/logos/logos-api:<version>`) for the operator to
+  copy into the MiMi manifest once the CI image is published.
+- Local import only covers the current node's architecture; it is **not**
+  a substitute for the multi-arch CI build when rolling out across the
+  mixed `amd64`/`arm64` cluster.
+
+**Never ship `:latest` in a production manifest.** Tags are mutable in
+GHCR (see MiMi §12 rule) and the manifest must be reproducible from Git
+alone. Always pin by digest on `main`-merged images; version tags are for
+humans reading logs, the digest is load-bearing.
+
+### 7.3 Dockerfile strategy (multi-stage, cross-compile, distroless-nonroot)
 
 ```dockerfile
-# Stage 1: Build
-FROM golang:1.26.2-alpine AS builder
+# syntax=docker/dockerfile:1
+# Builder runs on the host platform (fast on CI); binary targets $TARGETARCH
+# for multi-arch images.
+FROM --platform=$BUILDPLATFORM golang:1.26.2-alpine AS builder
+ARG TARGETOS
+ARG TARGETARCH
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -o /logos ./cmd/logos
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -o /logos ./cmd/logos
 
-# Stage 2: Runtime
-FROM gcr.io/distroless/static-debian12
+FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=builder /logos /logos
-COPY migrations/ /migrations/
 EXPOSE 8000
 ENTRYPOINT ["/logos"]
 ```
 
-Final image is ~10-15 MB with the static Go binary + migration SQL files.
+Key properties, for operators reading the image:
+
+- **Cross-compile, not emulate.** `--platform=$BUILDPLATFORM` keeps the
+  builder native; the Go toolchain cross-compiles to `${TARGETOS}/${TARGETARCH}`.
+  Avoids QEMU overhead in CI for the `arm64` target.
+- **Migrations are embedded in the binary**, not copied into the runtime
+  layer. `migrations/embed.go` uses `//go:embed *.sql` so `RunMigrations`
+  reads from `migrations.FS` at runtime. No separate migration files land
+  in the image; bumping a migration requires a rebuild.
+- **`distroless/static-debian12:nonroot`** runtime: no shell, no
+  package manager, UID `65532` by default. The image ships the static
+  Go binary and nothing else.
+
+Final image is roughly 10–15 MB: static Go binary only.
 
 ---
 
@@ -555,17 +626,25 @@ case and the "5xx is still logged" case.
 #### 11.1.5 HTTP server timeouts hardening
 
 **Problem.** `cmd/logos/main.go` sets `ReadTimeout: 10s`, `WriteTimeout:
-30s`, `IdleTimeout: 60s` but no `ReadHeaderTimeout` and no `MaxHeaderBytes`.
-A Slowloris-style attacker can dribble headers indefinitely under
-`ReadTimeout: 10s` (the timeout covers the whole read, but combined with
-keep-alive socket reuse the practical envelope is wider than intended).
+30s`, `IdleTimeout: 60s` but leaves `ReadHeaderTimeout` unset and
+`MaxHeaderBytes` at the `net/http` default of `1 << 20` (1 MiB). `net/http`
+does bound the header phase when `ReadHeaderTimeout` is zero — the
+configured `ReadTimeout` covers the whole read, so a Slowloris client is
+capped at 10s per connection rather than dribbling forever. The gap is
+narrower than "headers are unbounded": 10s is an acceptable envelope for a
+slow POST body but an unnecessarily generous one for headers alone, and a
+1 MiB header budget is far larger than any legitimate client Logos should
+receive.
 
-**Why.** Defense in depth. The existing settings cover happy-path latency
-SLAs but not adversarial inputs.
+**Why.** Defense in depth. Tighten the header deadline specifically so
+abusive clients are rejected before occupying a worker for the full read
+budget, and shrink the header-byte budget to the size we actually expect
+to handle (auth headers + `Accept` + a few kilobytes of cookies).
 
 **Acceptance.** Add `ReadHeaderTimeout: 5s` and `MaxHeaderBytes: 1 << 16`
-(64 KiB). Document the rationale in a code comment. No new tests needed —
-behavior is locked by `net/http` semantics.
+(64 KiB). Document the rationale in a code comment next to the field so a
+future reader does not re-introduce the larger defaults. No new tests
+needed — behavior is locked by `net/http` semantics.
 
 #### 11.1.6 Graceful shutdown via signal.NotifyContext + pool ordering
 
