@@ -1,0 +1,11 @@
+ALTER TABLE images DROP CONSTRAINT IF EXISTS ck_images_source;
+ALTER TABLE images
+    DROP COLUMN IF EXISTS generated_at,
+    DROP COLUMN IF EXISTS seed,
+    DROP COLUMN IF EXISTS model,
+    DROP COLUMN IF EXISTS prompt,
+    DROP COLUMN IF EXISTS height,
+    DROP COLUMN IF EXISTS width,
+    DROP COLUMN IF EXISTS size_bytes,
+    DROP COLUMN IF EXISTS content_type,
+    DROP COLUMN IF EXISTS source;

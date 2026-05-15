@@ -28,12 +28,21 @@ type Category struct {
 }
 
 type Image struct {
-	ID         pgtype.UUID        `json:"id"`
-	Url        string             `json:"url"`
-	AltText    pgtype.Text        `json:"alt_text"`
-	CategoryID pgtype.UUID        `json:"category_id"`
-	CreatedAt  pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+	ID          pgtype.UUID        `json:"id"`
+	Url         string             `json:"url"`
+	AltText     pgtype.Text        `json:"alt_text"`
+	CategoryID  pgtype.UUID        `json:"category_id"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	Source      string             `json:"source"`
+	ContentType pgtype.Text        `json:"content_type"`
+	SizeBytes   pgtype.Int8        `json:"size_bytes"`
+	Width       pgtype.Int4        `json:"width"`
+	Height      pgtype.Int4        `json:"height"`
+	Prompt      pgtype.Text        `json:"prompt"`
+	Model       pgtype.Text        `json:"model"`
+	Seed        pgtype.Int8        `json:"seed"`
+	GeneratedAt pgtype.Timestamptz `json:"generated_at"`
 }
 
 type Quote struct {

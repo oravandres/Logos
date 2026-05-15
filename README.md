@@ -35,8 +35,10 @@ queries/            SQL source files (sqlc input)
 | `API_PORT` | `8000` | Bind port |
 | `LOG_LEVEL` | `info` | Log level (debug, info, warn, error) |
 | `CORS_ALLOWED_ORIGINS` | *(none — CORS disabled)* | Comma-separated list of allowed CORS origins |
+| `LOGOS_IMAGE_UPLOAD_DIR` | *(unset — uploads disabled)* | Directory where uploaded / generated image blobs are persisted. Mount a Kubernetes PVC here. When unset, `POST /api/v1/images/uploads` and `GET /api/v1/images/{id}/blob` return `503 Service Unavailable`. |
+| `LOGOS_IMAGE_MAX_UPLOAD_BYTES` | `10485760` (10 MiB) | Hard cap on the request body for `POST /api/v1/images/uploads`. Mirror this value on any reverse-proxy `client_max_body_size` so the limit is enforced consistently. |
 
-Invalid `API_PORT` and `LOG_LEVEL` values now fail fast during startup instead of silently falling back.
+Invalid `API_PORT`, `LOG_LEVEL`, and `LOGOS_IMAGE_MAX_UPLOAD_BYTES` values now fail fast during startup instead of silently falling back.
 
 ## CLI
 
@@ -121,10 +123,12 @@ Probe endpoints outside the API base path:
 | `PUT` | `/categories/{id}` | Update category |
 | `DELETE` | `/categories/{id}` | Delete category |
 | `GET` | `/images` | List images (?category_id=) |
-| `POST` | `/images` | Register image |
+| `POST` | `/images` | Register image by external URL (JSON body: `{url, alt_text?, category_id?}`) |
+| `POST` | `/images/uploads` | Upload image from disk (multipart/form-data: `file`, `alt_text?`, `category_id?`). Persists to the local blobstore and returns the new image row with `source: "uploaded"`. Returns `503` when `LOGOS_IMAGE_UPLOAD_DIR` is not configured. |
 | `GET` | `/images/{id}` | Get image |
+| `GET` | `/images/{id}/blob` | Stream the raw bytes of an `uploaded` / `generated` image. `404` for `external_url` rows; `503` when uploads are not configured. |
 | `PUT` | `/images/{id}` | Update image |
-| `DELETE` | `/images/{id}` | Delete image |
+| `DELETE` | `/images/{id}` | Delete image (and its on-disk blob for `uploaded` / `generated` rows) |
 | `GET` | `/authors` | List authors (?category_id=&name=) |
 | `POST` | `/authors` | Create author |
 | `GET` | `/authors/{id}` | Get author |
