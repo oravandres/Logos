@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Builder runs on the host platform (fast on CI); binary targets $TARGETARCH for multi-arch images.
-FROM --platform=$BUILDPLATFORM golang:1.26.2-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26.3-alpine AS builder
 
 ARG TARGETOS
 ARG TARGETARCH
