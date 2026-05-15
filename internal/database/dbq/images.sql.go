@@ -23,10 +23,90 @@ func (q *Queries) CountImages(ctx context.Context, filterCategoryID pgtype.UUID)
 	return count, err
 }
 
+const createGeneratedImage = `-- name: CreateGeneratedImage :one
+INSERT INTO images (id, url, alt_text, category_id, source,
+                    content_type, size_bytes, width, height,
+                    prompt, model, seed, generated_at)
+VALUES ($1, $2, $3, $4, 'generated', $5, $6, $7, $8, $9, $10, $11, NOW())
+RETURNING id, url, alt_text, category_id, source, content_type, size_bytes,
+          width, height, prompt, model, seed, generated_at, created_at, updated_at
+`
+
+type CreateGeneratedImageParams struct {
+	ID          pgtype.UUID `json:"id"`
+	Url         string      `json:"url"`
+	AltText     pgtype.Text `json:"alt_text"`
+	CategoryID  pgtype.UUID `json:"category_id"`
+	ContentType pgtype.Text `json:"content_type"`
+	SizeBytes   pgtype.Int8 `json:"size_bytes"`
+	Width       pgtype.Int4 `json:"width"`
+	Height      pgtype.Int4 `json:"height"`
+	Prompt      pgtype.Text `json:"prompt"`
+	Model       pgtype.Text `json:"model"`
+	Seed        pgtype.Int8 `json:"seed"`
+}
+
+type CreateGeneratedImageRow struct {
+	ID          pgtype.UUID        `json:"id"`
+	Url         string             `json:"url"`
+	AltText     pgtype.Text        `json:"alt_text"`
+	CategoryID  pgtype.UUID        `json:"category_id"`
+	Source      string             `json:"source"`
+	ContentType pgtype.Text        `json:"content_type"`
+	SizeBytes   pgtype.Int8        `json:"size_bytes"`
+	Width       pgtype.Int4        `json:"width"`
+	Height      pgtype.Int4        `json:"height"`
+	Prompt      pgtype.Text        `json:"prompt"`
+	Model       pgtype.Text        `json:"model"`
+	Seed        pgtype.Int8        `json:"seed"`
+	GeneratedAt pgtype.Timestamptz `json:"generated_at"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
+// Generation flow: Logos has just downloaded the bytes from a generator
+// (DarkBase image-adapter today, Sparky later). Same blob layout as the
+// uploaded path; additional audit columns are non-NULL.
+func (q *Queries) CreateGeneratedImage(ctx context.Context, arg CreateGeneratedImageParams) (CreateGeneratedImageRow, error) {
+	row := q.db.QueryRow(ctx, createGeneratedImage,
+		arg.ID,
+		arg.Url,
+		arg.AltText,
+		arg.CategoryID,
+		arg.ContentType,
+		arg.SizeBytes,
+		arg.Width,
+		arg.Height,
+		arg.Prompt,
+		arg.Model,
+		arg.Seed,
+	)
+	var i CreateGeneratedImageRow
+	err := row.Scan(
+		&i.ID,
+		&i.Url,
+		&i.AltText,
+		&i.CategoryID,
+		&i.Source,
+		&i.ContentType,
+		&i.SizeBytes,
+		&i.Width,
+		&i.Height,
+		&i.Prompt,
+		&i.Model,
+		&i.Seed,
+		&i.GeneratedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const createImage = `-- name: CreateImage :one
 INSERT INTO images (url, alt_text, category_id)
 VALUES ($1, $2, $3)
-RETURNING id, url, alt_text, category_id, created_at, updated_at
+RETURNING id, url, alt_text, category_id, source, content_type, size_bytes,
+          width, height, prompt, model, seed, generated_at, created_at, updated_at
 `
 
 type CreateImageParams struct {
@@ -35,14 +115,116 @@ type CreateImageParams struct {
 	CategoryID pgtype.UUID `json:"category_id"`
 }
 
-func (q *Queries) CreateImage(ctx context.Context, arg CreateImageParams) (Image, error) {
+type CreateImageRow struct {
+	ID          pgtype.UUID        `json:"id"`
+	Url         string             `json:"url"`
+	AltText     pgtype.Text        `json:"alt_text"`
+	CategoryID  pgtype.UUID        `json:"category_id"`
+	Source      string             `json:"source"`
+	ContentType pgtype.Text        `json:"content_type"`
+	SizeBytes   pgtype.Int8        `json:"size_bytes"`
+	Width       pgtype.Int4        `json:"width"`
+	Height      pgtype.Int4        `json:"height"`
+	Prompt      pgtype.Text        `json:"prompt"`
+	Model       pgtype.Text        `json:"model"`
+	Seed        pgtype.Int8        `json:"seed"`
+	GeneratedAt pgtype.Timestamptz `json:"generated_at"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
+// External-URL flow (today's behavior). `source` defaults to 'external_url'
+// in the schema; left implicit so the existing JSON CRUD handler is
+// unchanged on the wire.
+func (q *Queries) CreateImage(ctx context.Context, arg CreateImageParams) (CreateImageRow, error) {
 	row := q.db.QueryRow(ctx, createImage, arg.Url, arg.AltText, arg.CategoryID)
-	var i Image
+	var i CreateImageRow
 	err := row.Scan(
 		&i.ID,
 		&i.Url,
 		&i.AltText,
 		&i.CategoryID,
+		&i.Source,
+		&i.ContentType,
+		&i.SizeBytes,
+		&i.Width,
+		&i.Height,
+		&i.Prompt,
+		&i.Model,
+		&i.Seed,
+		&i.GeneratedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const createUploadedImage = `-- name: CreateUploadedImage :one
+INSERT INTO images (id, url, alt_text, category_id, source,
+                    content_type, size_bytes, width, height)
+VALUES ($1, $2, $3, $4, 'uploaded', $5, $6, $7, $8)
+RETURNING id, url, alt_text, category_id, source, content_type, size_bytes,
+          width, height, prompt, model, seed, generated_at, created_at, updated_at
+`
+
+type CreateUploadedImageParams struct {
+	ID          pgtype.UUID `json:"id"`
+	Url         string      `json:"url"`
+	AltText     pgtype.Text `json:"alt_text"`
+	CategoryID  pgtype.UUID `json:"category_id"`
+	ContentType pgtype.Text `json:"content_type"`
+	SizeBytes   pgtype.Int8 `json:"size_bytes"`
+	Width       pgtype.Int4 `json:"width"`
+	Height      pgtype.Int4 `json:"height"`
+}
+
+type CreateUploadedImageRow struct {
+	ID          pgtype.UUID        `json:"id"`
+	Url         string             `json:"url"`
+	AltText     pgtype.Text        `json:"alt_text"`
+	CategoryID  pgtype.UUID        `json:"category_id"`
+	Source      string             `json:"source"`
+	ContentType pgtype.Text        `json:"content_type"`
+	SizeBytes   pgtype.Int8        `json:"size_bytes"`
+	Width       pgtype.Int4        `json:"width"`
+	Height      pgtype.Int4        `json:"height"`
+	Prompt      pgtype.Text        `json:"prompt"`
+	Model       pgtype.Text        `json:"model"`
+	Seed        pgtype.Int8        `json:"seed"`
+	GeneratedAt pgtype.Timestamptz `json:"generated_at"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
+// Multipart upload flow: server has already written the blob to disk and
+// decoded its dimensions. Caller supplies the canonical id (so the URL
+// on the row matches the on-disk filename) and the audit columns.
+func (q *Queries) CreateUploadedImage(ctx context.Context, arg CreateUploadedImageParams) (CreateUploadedImageRow, error) {
+	row := q.db.QueryRow(ctx, createUploadedImage,
+		arg.ID,
+		arg.Url,
+		arg.AltText,
+		arg.CategoryID,
+		arg.ContentType,
+		arg.SizeBytes,
+		arg.Width,
+		arg.Height,
+	)
+	var i CreateUploadedImageRow
+	err := row.Scan(
+		&i.ID,
+		&i.Url,
+		&i.AltText,
+		&i.CategoryID,
+		&i.Source,
+		&i.ContentType,
+		&i.SizeBytes,
+		&i.Width,
+		&i.Height,
+		&i.Prompt,
+		&i.Model,
+		&i.Seed,
+		&i.GeneratedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -50,27 +232,65 @@ func (q *Queries) CreateImage(ctx context.Context, arg CreateImageParams) (Image
 }
 
 const deleteImage = `-- name: DeleteImage :one
-DELETE FROM images WHERE id = $1 RETURNING id
+DELETE FROM images WHERE id = $1 RETURNING id, source
 `
 
-func (q *Queries) DeleteImage(ctx context.Context, id pgtype.UUID) (pgtype.UUID, error) {
+type DeleteImageRow struct {
+	ID     pgtype.UUID `json:"id"`
+	Source string      `json:"source"`
+}
+
+// Returns id + source so the handler can decide whether to also remove
+// the blob from the local blobstore (for 'uploaded' and 'generated'
+// rows; 'external_url' rows have no on-disk artifact to clean up).
+func (q *Queries) DeleteImage(ctx context.Context, id pgtype.UUID) (DeleteImageRow, error) {
 	row := q.db.QueryRow(ctx, deleteImage, id)
-	err := row.Scan(&id)
-	return id, err
+	var i DeleteImageRow
+	err := row.Scan(&i.ID, &i.Source)
+	return i, err
 }
 
 const getImage = `-- name: GetImage :one
-SELECT id, url, alt_text, category_id, created_at, updated_at FROM images WHERE id = $1
+SELECT id, url, alt_text, category_id, source, content_type, size_bytes,
+       width, height, prompt, model, seed, generated_at, created_at, updated_at
+FROM images WHERE id = $1
 `
 
-func (q *Queries) GetImage(ctx context.Context, id pgtype.UUID) (Image, error) {
+type GetImageRow struct {
+	ID          pgtype.UUID        `json:"id"`
+	Url         string             `json:"url"`
+	AltText     pgtype.Text        `json:"alt_text"`
+	CategoryID  pgtype.UUID        `json:"category_id"`
+	Source      string             `json:"source"`
+	ContentType pgtype.Text        `json:"content_type"`
+	SizeBytes   pgtype.Int8        `json:"size_bytes"`
+	Width       pgtype.Int4        `json:"width"`
+	Height      pgtype.Int4        `json:"height"`
+	Prompt      pgtype.Text        `json:"prompt"`
+	Model       pgtype.Text        `json:"model"`
+	Seed        pgtype.Int8        `json:"seed"`
+	GeneratedAt pgtype.Timestamptz `json:"generated_at"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) GetImage(ctx context.Context, id pgtype.UUID) (GetImageRow, error) {
 	row := q.db.QueryRow(ctx, getImage, id)
-	var i Image
+	var i GetImageRow
 	err := row.Scan(
 		&i.ID,
 		&i.Url,
 		&i.AltText,
 		&i.CategoryID,
+		&i.Source,
+		&i.ContentType,
+		&i.SizeBytes,
+		&i.Width,
+		&i.Height,
+		&i.Prompt,
+		&i.Model,
+		&i.Seed,
+		&i.GeneratedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -78,7 +298,9 @@ func (q *Queries) GetImage(ctx context.Context, id pgtype.UUID) (Image, error) {
 }
 
 const listImages = `-- name: ListImages :many
-SELECT id, url, alt_text, category_id, created_at, updated_at FROM images
+SELECT id, url, alt_text, category_id, source, content_type, size_bytes,
+       width, height, prompt, model, seed, generated_at, created_at, updated_at
+FROM images
 WHERE (category_id = $3 OR $3 IS NULL)
 ORDER BY created_at DESC
 LIMIT $1 OFFSET $2
@@ -90,20 +312,47 @@ type ListImagesParams struct {
 	FilterCategoryID pgtype.UUID `json:"filter_category_id"`
 }
 
-func (q *Queries) ListImages(ctx context.Context, arg ListImagesParams) ([]Image, error) {
+type ListImagesRow struct {
+	ID          pgtype.UUID        `json:"id"`
+	Url         string             `json:"url"`
+	AltText     pgtype.Text        `json:"alt_text"`
+	CategoryID  pgtype.UUID        `json:"category_id"`
+	Source      string             `json:"source"`
+	ContentType pgtype.Text        `json:"content_type"`
+	SizeBytes   pgtype.Int8        `json:"size_bytes"`
+	Width       pgtype.Int4        `json:"width"`
+	Height      pgtype.Int4        `json:"height"`
+	Prompt      pgtype.Text        `json:"prompt"`
+	Model       pgtype.Text        `json:"model"`
+	Seed        pgtype.Int8        `json:"seed"`
+	GeneratedAt pgtype.Timestamptz `json:"generated_at"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) ListImages(ctx context.Context, arg ListImagesParams) ([]ListImagesRow, error) {
 	rows, err := q.db.Query(ctx, listImages, arg.Limit, arg.Offset, arg.FilterCategoryID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Image{}
+	items := []ListImagesRow{}
 	for rows.Next() {
-		var i Image
+		var i ListImagesRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Url,
 			&i.AltText,
 			&i.CategoryID,
+			&i.Source,
+			&i.ContentType,
+			&i.SizeBytes,
+			&i.Width,
+			&i.Height,
+			&i.Prompt,
+			&i.Model,
+			&i.Seed,
+			&i.GeneratedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -121,7 +370,8 @@ const updateImage = `-- name: UpdateImage :one
 UPDATE images
 SET url = $1, alt_text = $2, category_id = $3, updated_at = NOW()
 WHERE id = $4
-RETURNING id, url, alt_text, category_id, created_at, updated_at
+RETURNING id, url, alt_text, category_id, source, content_type, size_bytes,
+          width, height, prompt, model, seed, generated_at, created_at, updated_at
 `
 
 type UpdateImageParams struct {
@@ -131,19 +381,49 @@ type UpdateImageParams struct {
 	ID         pgtype.UUID `json:"id"`
 }
 
-func (q *Queries) UpdateImage(ctx context.Context, arg UpdateImageParams) (Image, error) {
+type UpdateImageRow struct {
+	ID          pgtype.UUID        `json:"id"`
+	Url         string             `json:"url"`
+	AltText     pgtype.Text        `json:"alt_text"`
+	CategoryID  pgtype.UUID        `json:"category_id"`
+	Source      string             `json:"source"`
+	ContentType pgtype.Text        `json:"content_type"`
+	SizeBytes   pgtype.Int8        `json:"size_bytes"`
+	Width       pgtype.Int4        `json:"width"`
+	Height      pgtype.Int4        `json:"height"`
+	Prompt      pgtype.Text        `json:"prompt"`
+	Model       pgtype.Text        `json:"model"`
+	Seed        pgtype.Int8        `json:"seed"`
+	GeneratedAt pgtype.Timestamptz `json:"generated_at"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
+// Updates only the user-editable surface (url / alt_text / category).
+// Source-specific audit columns (content_type, prompt, …) are immutable
+// post-ingest by design — re-running generation should produce a new row.
+func (q *Queries) UpdateImage(ctx context.Context, arg UpdateImageParams) (UpdateImageRow, error) {
 	row := q.db.QueryRow(ctx, updateImage,
 		arg.Url,
 		arg.AltText,
 		arg.CategoryID,
 		arg.ID,
 	)
-	var i Image
+	var i UpdateImageRow
 	err := row.Scan(
 		&i.ID,
 		&i.Url,
 		&i.AltText,
 		&i.CategoryID,
+		&i.Source,
+		&i.ContentType,
+		&i.SizeBytes,
+		&i.Width,
+		&i.Height,
+		&i.Prompt,
+		&i.Model,
+		&i.Seed,
+		&i.GeneratedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
