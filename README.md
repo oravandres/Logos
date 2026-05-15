@@ -35,10 +35,14 @@ queries/            SQL source files (sqlc input)
 | `API_PORT` | `8000` | Bind port |
 | `LOG_LEVEL` | `info` | Log level (debug, info, warn, error) |
 | `CORS_ALLOWED_ORIGINS` | *(none — CORS disabled)* | Comma-separated list of allowed CORS origins |
-| `LOGOS_IMAGE_UPLOAD_DIR` | *(unset — uploads disabled)* | Directory where uploaded / generated image blobs are persisted. Mount a Kubernetes PVC here. When unset, `POST /api/v1/images/uploads` and `GET /api/v1/images/{id}/blob` return `503 Service Unavailable`. |
+| `LOGOS_IMAGE_UPLOAD_DIR` | *(unset — uploads disabled)* | Directory where uploaded / generated image blobs are persisted. Mount a Kubernetes PVC here. When unset, `POST /api/v1/images/uploads`, `GET /api/v1/images/{id}/blob`, and `POST /api/v1/images:generate` return `503 Service Unavailable`. |
 | `LOGOS_IMAGE_MAX_UPLOAD_BYTES` | `10485760` (10 MiB) | Hard cap on the request body for `POST /api/v1/images/uploads`. Mirror this value on any reverse-proxy `client_max_body_size` so the limit is enforced consistently. |
+| `LOGOS_IMAGEGEN_PROVIDER` | *(unset — generation disabled)* | Image generation backend. Today: `darkbase`. When unset, `POST /api/v1/images:generate` returns `503`. |
+| `LOGOS_IMAGEGEN_BASE_URL` | *(unset)* | Root URL of the configured generator (e.g. `http://image-adapter.darkbase.svc:8081`). Required to enable the endpoint. |
+| `LOGOS_IMAGEGEN_AUTH_TOKEN` | *(unset)* | Optional Bearer token sent on every outbound generator request. |
+| `LOGOS_IMAGEGEN_TIMEOUT_SECONDS` | `120` | Wall-clock cap for a single generate request, applied as a context deadline. Fires `504 Gateway Timeout` on the API. |
 
-Invalid `API_PORT`, `LOG_LEVEL`, and `LOGOS_IMAGE_MAX_UPLOAD_BYTES` values now fail fast during startup instead of silently falling back.
+Invalid `API_PORT`, `LOG_LEVEL`, `LOGOS_IMAGE_MAX_UPLOAD_BYTES`, `LOGOS_IMAGEGEN_PROVIDER`, and `LOGOS_IMAGEGEN_TIMEOUT_SECONDS` values now fail fast during startup instead of silently falling back.
 
 ## CLI
 
@@ -125,6 +129,7 @@ Probe endpoints outside the API base path:
 | `GET` | `/images` | List images (?category_id=) |
 | `POST` | `/images` | Register image by external URL (JSON body: `{url, alt_text?, category_id?}`) |
 | `POST` | `/images/uploads` | Upload image from disk (multipart/form-data: `file`, `alt_text?`, `category_id?`). Persists to the local blobstore and returns the new image row with `source: "uploaded"`. Returns `503` when `LOGOS_IMAGE_UPLOAD_DIR` is not configured. |
+| `POST` | `/images:generate` | Generate a new image via the configured backend (DarkBase today). JSON body: `{prompt, model?, width?, height?, seed?, steps?, cfg_scale?, alt_text?, category_id?}`. Synchronous: returns the persisted image row with `source: "generated"` once the bytes are downloaded. Returns `400` for client errors, `502` if the worker errored, `503` when not configured / backend unavailable, `504` on `LOGOS_IMAGEGEN_TIMEOUT_SECONDS`. |
 | `GET` | `/images/{id}` | Get image |
 | `GET` | `/images/{id}/blob` | Stream the raw bytes of an `uploaded` / `generated` image. `404` for `external_url` rows; `503` when uploads are not configured. |
 | `PUT` | `/images/{id}` | Update image |

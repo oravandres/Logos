@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"image"
@@ -20,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/oravandres/Logos/internal/blobstore"
 	"github.com/oravandres/Logos/internal/database/dbq"
+	"github.com/oravandres/Logos/internal/imagegen"
 	"github.com/oravandres/Logos/internal/model"
 )
 
@@ -28,10 +30,15 @@ import (
 // `Blobs` and `MaxUploadBytes` are nil/zero when the operator did not set
 // `LOGOS_IMAGE_UPLOAD_DIR`; in that case Upload/Blob respond with 503 so
 // the failure mode is loud rather than mysterious.
+//
+// `ImageGen` is nil when no image-generation backend is configured; the
+// Generate handler returns 503 in that state.
 type ImageHandler struct {
 	Q              *dbq.Queries
 	Blobs          blobstore.Store
 	MaxUploadBytes int64
+	ImageGen       imagegen.Generator
+	GenTimeout     time.Duration
 }
 
 // supportedUploadFormats maps a sniffed Content-Type to the file extension
@@ -429,6 +436,149 @@ func (h *ImageHandler) Blob(w http.ResponseWriter, r *http.Request) {
 	// immutable for the lifetime of the row (re-uploads create new ids).
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	http.ServeContent(w, r, ext, modTime(stat, img.UpdatedAt.Time), rsc)
+}
+
+// Generate calls the configured image-generation backend, persists the
+// resulting bytes to the blobstore, and inserts a row with `source =
+// 'generated'`.
+//
+// Wire shape (JSON): see `model.GenerateImageRequest`. The handler is
+// synchronous from the caller's perspective: the response either carries
+// the persisted ImageResponse (201) or an error envelope. The
+// per-request timeout is taken from `GenTimeout` and overlays whatever
+// deadline the inbound context already carries.
+//
+// Error mapping (imagegen sentinels → HTTP):
+//
+//	ErrInvalidRequest  → 400 (the user asked for something the backend
+//	                          rejected, e.g. dimension cap, prompt rule)
+//	ErrJobFailed       → 502 (the worker accepted the job and then
+//	                          errored — that is a backend problem, not a
+//	                          client problem)
+//	ErrUnavailable     → 503 (network / 5xx / nothing-ready)
+//	context.DeadlineExceeded → 504 (the GenTimeout fired)
+//
+// The handler **does not** retry on 502/503 — retries belong on the
+// caller side where we know whether the request is idempotent.
+func (h *ImageHandler) Generate(w http.ResponseWriter, r *http.Request) {
+	if h.Blobs == nil {
+		respondError(w, http.StatusServiceUnavailable, "image storage is not configured")
+		return
+	}
+	if h.ImageGen == nil {
+		respondError(w, http.StatusServiceUnavailable, "image generation is not configured")
+		return
+	}
+
+	var req model.GenerateImageRequest
+	if err := decode(w, r, &req); err != nil {
+		writeDecodeError(w, err)
+		return
+	}
+	if strings.TrimSpace(req.Prompt) == "" {
+		respondError(w, http.StatusBadRequest, "prompt is required")
+		return
+	}
+	// Defensive caps: keep the user from accidentally requesting an
+	// 8K render through the API (the backend enforces its own caps but
+	// we want a clear, model-agnostic 400 here too).
+	if req.Width < 0 || req.Width > 4096 || req.Height < 0 || req.Height > 4096 {
+		respondError(w, http.StatusBadRequest, "width/height must be in [0, 4096]")
+		return
+	}
+	if req.Steps < 0 || req.Steps > 200 {
+		respondError(w, http.StatusBadRequest, "steps must be in [0, 200]")
+		return
+	}
+
+	ctx := r.Context()
+	if h.GenTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, h.GenTimeout)
+		defer cancel()
+	}
+
+	res, err := h.ImageGen.Generate(ctx, imagegen.Request{
+		Prompt:   req.Prompt,
+		Model:    req.Model,
+		Width:    req.Width,
+		Height:   req.Height,
+		Seed:     req.Seed,
+		Steps:    req.Steps,
+		CFGScale: req.CFGScale,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, context.DeadlineExceeded):
+			respondErrorDetail(w, http.StatusGatewayTimeout,
+				"image generation timed out", err.Error())
+		case errors.Is(err, imagegen.ErrInvalidRequest):
+			respondErrorDetail(w, http.StatusBadRequest,
+				"image generation rejected the request", err.Error())
+		case errors.Is(err, imagegen.ErrJobFailed):
+			respondErrorDetail(w, http.StatusBadGateway,
+				"image generation failed", err.Error())
+		case errors.Is(err, imagegen.ErrUnavailable):
+			respondErrorDetail(w, http.StatusServiceUnavailable,
+				"image generation backend unavailable", err.Error())
+		default:
+			respondErrorDetail(w, http.StatusInternalServerError,
+				"image generation error", err.Error())
+		}
+		return
+	}
+
+	// The backend declared `image/png` but we still verify dimensions
+	// from the bytes ourselves — width/height become the wire response
+	// and we don't want to trust the backend on a field we can compute.
+	mt := strings.TrimSpace(strings.SplitN(res.ContentType, ";", 2)[0])
+	ext, ok := supportedUploadFormats[mt]
+	if !ok {
+		respondErrorDetail(w, http.StatusBadGateway,
+			"image generation returned an unsupported content type", res.ContentType)
+		return
+	}
+	width, height := decodeImageConfig(mt, res.Bytes)
+	if width == 0 && res.Width > 0 {
+		width = res.Width
+	}
+	if height == 0 && res.Height > 0 {
+		height = res.Height
+	}
+
+	id := uuid.New()
+	if err := h.Blobs.Put(r.Context(), id, ext, bytes.NewReader(res.Bytes)); err != nil {
+		respondErrorDetail(w, http.StatusInternalServerError,
+			"failed to persist image bytes", err.Error())
+		return
+	}
+
+	row, err := h.Q.CreateGeneratedImage(r.Context(), dbq.CreateGeneratedImageParams{
+		ID:          model.UUIDToPgtype(id),
+		Url:         h.Blobs.Path(id, ext),
+		AltText:     model.OptionalStringToPgtext(req.AltText),
+		CategoryID:  model.OptionalUUIDToPgtype(req.CategoryID),
+		ContentType: model.StringToPgtext(mt),
+		SizeBytes:   pgtype.Int8{Int64: int64(len(res.Bytes)), Valid: true},
+		Width:       optionalInt32(width),
+		Height:      optionalInt32(height),
+		Prompt:      model.StringToPgtext(req.Prompt),
+		Model:       model.StringToPgtext(res.Model),
+		Seed:        pgtype.Int8{Int64: res.Seed, Valid: res.Seed != 0},
+	})
+	if err != nil {
+		_ = h.Blobs.Delete(id, ext)
+		if isFKViolation(err) {
+			respondError(w, http.StatusUnprocessableEntity,
+				"referenced category does not exist")
+			return
+		}
+		respondErrorDetail(w, http.StatusInternalServerError,
+			"failed to create image", err.Error())
+		return
+	}
+
+	respondJSON(w, http.StatusCreated, model.ImageFromGenerateRow(row))
 }
 
 func decodeImageConfig(mt string, buf []byte) (width, height int) {
