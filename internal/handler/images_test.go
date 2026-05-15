@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"image"
 	"image/color"
 	"image/png"
@@ -12,13 +13,27 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/oravandres/Logos/internal/blobstore"
 	"github.com/oravandres/Logos/internal/database/dbq"
 	"github.com/oravandres/Logos/internal/handler"
+	"github.com/oravandres/Logos/internal/imagegen"
 )
+
+// fakeGenerator is a controllable Generator for handler tests.
+type fakeGenerator struct {
+	res  imagegen.Result
+	err  error
+	last imagegen.Request
+}
+
+func (g *fakeGenerator) Generate(_ context.Context, req imagegen.Request) (imagegen.Result, error) {
+	g.last = req
+	return g.res, g.err
+}
 
 // imageRouter is the same shape as the production /images sub-router so
 // these tests exercise the handlers via real chi URL params (otherwise
@@ -32,6 +47,7 @@ func imageRouter(h *handler.ImageHandler) *chi.Mux {
 	r.Delete("/images/{id}", h.Delete)
 	r.Post("/images/uploads", h.Upload)
 	r.Get("/images/{id}/blob", h.Blob)
+	r.Post("/images:generate", h.Generate)
 	return r
 }
 
@@ -226,6 +242,167 @@ func newStoreT(t *testing.T) blobstore.Store {
 	return s
 }
 
+// ----------------------------------------------------------------------
+// Generate handler tests
+// ----------------------------------------------------------------------
+
+func TestImageGenerate_RequiresGenerator(t *testing.T) {
+	t.Parallel()
+	store := newStoreT(t)
+	router := imageRouter(&handler.ImageHandler{Q: nilQ(), Blobs: store})
+
+	rec := postJSON(t, router, "/images:generate", map[string]any{"prompt": "x"})
+	assertStatus(t, rec, http.StatusServiceUnavailable)
+	assertErrorMsg(t, rec, "image generation is not configured")
+}
+
+func TestImageGenerate_RequiresBlobstore(t *testing.T) {
+	t.Parallel()
+	router := imageRouter(&handler.ImageHandler{
+		Q: nilQ(), ImageGen: &fakeGenerator{},
+	})
+
+	rec := postJSON(t, router, "/images:generate", map[string]any{"prompt": "x"})
+	assertStatus(t, rec, http.StatusServiceUnavailable)
+	assertErrorMsg(t, rec, "image storage is not configured")
+}
+
+func TestImageGenerate_RejectsMissingPrompt(t *testing.T) {
+	t.Parallel()
+	store := newStoreT(t)
+	router := imageRouter(&handler.ImageHandler{
+		Q: nilQ(), Blobs: store, ImageGen: &fakeGenerator{},
+	})
+
+	rec := postJSON(t, router, "/images:generate", map[string]any{"prompt": "  "})
+	assertStatus(t, rec, http.StatusBadRequest)
+	assertErrorMsg(t, rec, "prompt is required")
+}
+
+func TestImageGenerate_RejectsExcessiveDimensions(t *testing.T) {
+	t.Parallel()
+	store := newStoreT(t)
+	router := imageRouter(&handler.ImageHandler{
+		Q: nilQ(), Blobs: store, ImageGen: &fakeGenerator{},
+	})
+
+	rec := postJSON(t, router, "/images:generate", map[string]any{
+		"prompt": "x", "width": 9999, "height": 9999,
+	})
+	assertStatus(t, rec, http.StatusBadRequest)
+	assertErrorMsg(t, rec, "width/height must be in [0, 4096]")
+}
+
+func TestImageGenerate_BackendInvalidRequestMapsTo400(t *testing.T) {
+	t.Parallel()
+	store := newStoreT(t)
+	gen := &fakeGenerator{err: imagegen.ErrInvalidRequest}
+	router := imageRouter(&handler.ImageHandler{
+		Q: nilQ(), Blobs: store, ImageGen: gen,
+	})
+
+	rec := postJSON(t, router, "/images:generate", map[string]any{"prompt": "x"})
+	assertStatus(t, rec, http.StatusBadRequest)
+}
+
+func TestImageGenerate_BackendUnavailableMapsTo503(t *testing.T) {
+	t.Parallel()
+	store := newStoreT(t)
+	gen := &fakeGenerator{err: imagegen.ErrUnavailable}
+	router := imageRouter(&handler.ImageHandler{
+		Q: nilQ(), Blobs: store, ImageGen: gen,
+	})
+
+	rec := postJSON(t, router, "/images:generate", map[string]any{"prompt": "x"})
+	assertStatus(t, rec, http.StatusServiceUnavailable)
+}
+
+func TestImageGenerate_BackendJobFailedMapsTo502(t *testing.T) {
+	t.Parallel()
+	store := newStoreT(t)
+	gen := &fakeGenerator{err: imagegen.ErrJobFailed}
+	router := imageRouter(&handler.ImageHandler{
+		Q: nilQ(), Blobs: store, ImageGen: gen,
+	})
+
+	rec := postJSON(t, router, "/images:generate", map[string]any{"prompt": "x"})
+	assertStatus(t, rec, http.StatusBadGateway)
+}
+
+func TestImageGenerate_DeadlineExceededMapsTo504(t *testing.T) {
+	t.Parallel()
+	store := newStoreT(t)
+	gen := &fakeGenerator{err: context.DeadlineExceeded}
+	router := imageRouter(&handler.ImageHandler{
+		Q: nilQ(), Blobs: store, ImageGen: gen, GenTimeout: 1 * time.Millisecond,
+	})
+
+	rec := postJSON(t, router, "/images:generate", map[string]any{"prompt": "x"})
+	assertStatus(t, rec, http.StatusGatewayTimeout)
+}
+
+func TestImageGenerate_RejectsUnsupportedContentType(t *testing.T) {
+	t.Parallel()
+	store := newStoreT(t)
+	gen := &fakeGenerator{
+		res: imagegen.Result{
+			Bytes:       []byte("anything"),
+			ContentType: "image/tiff",
+		},
+	}
+	router := imageRouter(&handler.ImageHandler{
+		Q: nilQ(), Blobs: store, ImageGen: gen,
+	})
+
+	rec := postJSON(t, router, "/images:generate", map[string]any{"prompt": "x"})
+	assertStatus(t, rec, http.StatusBadGateway)
+}
+
+func TestImageGenerate_ForwardsRequestFields(t *testing.T) {
+	t.Parallel()
+	store := newStoreT(t)
+	// Returning ErrUnavailable lets the test stop before the DB layer
+	// (which the nil stub can't satisfy) but still exercises the field
+	// forwarding path that runs *before* the Generator returns.
+	gen := &fakeGenerator{err: imagegen.ErrUnavailable}
+	router := imageRouter(&handler.ImageHandler{
+		Q: nilQ(), Blobs: store, ImageGen: gen,
+	})
+
+	body := map[string]any{
+		"prompt":    "an autumn forest",
+		"model":     "flux2",
+		"width":     1024,
+		"height":    768,
+		"seed":      9999,
+		"steps":     28,
+		"cfg_scale": 4.0,
+	}
+	rec := postJSON(t, router, "/images:generate", body)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d want 503; body=%s", rec.Code, rec.Body.String())
+	}
+
+	if gen.last.Prompt != "an autumn forest" {
+		t.Errorf("Prompt = %q", gen.last.Prompt)
+	}
+	if gen.last.Model != "flux2" {
+		t.Errorf("Model = %q", gen.last.Model)
+	}
+	if gen.last.Width != 1024 || gen.last.Height != 768 {
+		t.Errorf("dims = %dx%d", gen.last.Width, gen.last.Height)
+	}
+	if gen.last.Seed != 9999 {
+		t.Errorf("Seed = %d", gen.last.Seed)
+	}
+	if gen.last.Steps != 28 {
+		t.Errorf("Steps = %d", gen.last.Steps)
+	}
+	if gen.last.CFGScale != 4.0 {
+		t.Errorf("CFGScale = %v", gen.last.CFGScale)
+	}
+}
+
 // Compile-time guards: catch silent import / signature changes that
 // would make the helpers below stop covering what they claim to cover.
 var (
@@ -233,4 +410,5 @@ var (
 	_ = (*dbq.Queries)(nil)
 	_ = (io.Reader)(nil)
 	_ = json.Marshal
+	_ = errors.Is
 )

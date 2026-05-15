@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoadDefaults(t *testing.T) {
@@ -37,6 +38,59 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.ImageUploadsEnabled() {
 		t.Fatal("ImageUploadsEnabled = true with empty dir, want false")
+	}
+	if cfg.ImageGenEnabled() {
+		t.Fatal("ImageGenEnabled = true with no provider/base URL, want false")
+	}
+	if cfg.ImageGenTimeout != 120*time.Second {
+		t.Fatalf("ImageGenTimeout = %v, want 120s", cfg.ImageGenTimeout)
+	}
+}
+
+func TestLoadImageGenConfig(t *testing.T) {
+	t.Setenv("LOGOS_IMAGEGEN_PROVIDER", "darkbase")
+	t.Setenv("LOGOS_IMAGEGEN_BASE_URL", "http://image-adapter.darkbase.svc:8081")
+	t.Setenv("LOGOS_IMAGEGEN_AUTH_TOKEN", "shh")
+	t.Setenv("LOGOS_IMAGEGEN_TIMEOUT_SECONDS", "300")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.ImageGenProvider != "darkbase" {
+		t.Fatalf("ImageGenProvider = %q", cfg.ImageGenProvider)
+	}
+	if cfg.ImageGenBaseURL != "http://image-adapter.darkbase.svc:8081" {
+		t.Fatalf("ImageGenBaseURL = %q", cfg.ImageGenBaseURL)
+	}
+	if cfg.ImageGenAuthToken != "shh" {
+		t.Fatalf("ImageGenAuthToken = %q", cfg.ImageGenAuthToken)
+	}
+	if cfg.ImageGenTimeout != 300*time.Second {
+		t.Fatalf("ImageGenTimeout = %v", cfg.ImageGenTimeout)
+	}
+	if !cfg.ImageGenEnabled() {
+		t.Fatal("ImageGenEnabled = false, want true")
+	}
+}
+
+func TestLoadImageGenEnabledRequiresBaseURL(t *testing.T) {
+	t.Setenv("LOGOS_IMAGEGEN_PROVIDER", "darkbase")
+	t.Setenv("LOGOS_IMAGEGEN_BASE_URL", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.ImageGenEnabled() {
+		t.Fatal("ImageGenEnabled = true with empty base URL, want false")
+	}
+}
+
+func TestLoadRejectsUnknownImageGenProvider(t *testing.T) {
+	t.Setenv("LOGOS_IMAGEGEN_PROVIDER", "magic-pony")
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() error = nil, want non-nil")
 	}
 }
 

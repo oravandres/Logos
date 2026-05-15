@@ -2,6 +2,7 @@ package router
 
 import (
 	"log/slog"
+	"net/http"
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
@@ -13,6 +14,7 @@ import (
 	"github.com/oravandres/Logos/internal/config"
 	"github.com/oravandres/Logos/internal/database/dbq"
 	"github.com/oravandres/Logos/internal/handler"
+	"github.com/oravandres/Logos/internal/imagegen"
 	"github.com/oravandres/Logos/internal/middleware"
 )
 
@@ -41,9 +43,29 @@ func New(pool *pgxpool.Pool, cfg config.Config) *chi.Mux {
 		}
 	}
 
+	var gen imagegen.Generator
+	if cfg.ImageGenEnabled() {
+		switch cfg.ImageGenProvider {
+		case "darkbase":
+			gen = &imagegen.DarkbaseGenerator{
+				BaseURL:    cfg.ImageGenBaseURL,
+				AuthToken:  cfg.ImageGenAuthToken,
+				HTTPClient: &http.Client{},
+			}
+		default:
+			// Validation in `config.Load` keeps us out of this branch;
+			// log loudly if the contract ever drifts.
+			slog.Error("unknown image generation provider",
+				"provider", cfg.ImageGenProvider)
+		}
+	}
+
 	health := &handler.HealthHandler{Pinger: pool}
 	categories := &handler.CategoryHandler{Q: q}
-	images := &handler.ImageHandler{Q: q, Blobs: blobs, MaxUploadBytes: cfg.ImageMaxUploadBytes}
+	images := &handler.ImageHandler{
+		Q: q, Blobs: blobs, MaxUploadBytes: cfg.ImageMaxUploadBytes,
+		ImageGen: gen, GenTimeout: cfg.ImageGenTimeout,
+	}
 	authors := &handler.AuthorHandler{Q: q}
 	quotes := &handler.QuoteHandler{Q: q}
 	tags := &handler.TagHandler{Q: q}
@@ -73,6 +95,12 @@ func New(pool *pgxpool.Pool, cfg config.Config) *chi.Mux {
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Get("/health", health.Compat)
+
+		// Custom verb (Google AOIP-style) mounted at the API root so
+		// the colon segment doesn't collide with `/images/{id}`. The
+		// handler returns 503 when the generator or blobstore are not
+		// configured.
+		r.Post("/images:generate", images.Generate)
 
 		r.Route("/categories", func(r chi.Router) {
 			r.Get("/", categories.List)

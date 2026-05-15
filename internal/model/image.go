@@ -67,6 +67,26 @@ type UpdateImageRequest struct {
 	CategoryID *uuid.UUID `json:"category_id"`
 }
 
+// GenerateImageRequest is the expected JSON body for `POST
+// /api/v1/images:generate`. The handler synchronously calls the
+// configured imagegen.Generator, persists the bytes to the blobstore,
+// and returns the resulting image row.
+//
+// `Steps`, `Width`, `Height`, `Seed`, `CFGScale` are all optional;
+// zero / null delegates to the generator's default. `Model` is also
+// optional and is passed through to the backend as-is.
+type GenerateImageRequest struct {
+	Prompt     string     `json:"prompt"`
+	Model      string     `json:"model"`
+	Width      int        `json:"width"`
+	Height     int        `json:"height"`
+	Seed       int64      `json:"seed"`
+	Steps      int        `json:"steps"`
+	CFGScale   float64    `json:"cfg_scale"`
+	AltText    *string    `json:"alt_text"`
+	CategoryID *uuid.UUID `json:"category_id"`
+}
+
 // imageFields gathers the union of columns every "image row" sqlc-generated
 // type returns; centralising the lift keeps the per-row helpers below to a
 // one-line call.
